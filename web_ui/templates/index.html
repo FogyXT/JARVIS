@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis — AI Assistant</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=17">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+</head>
+<body>
+    <!-- Particle Canvas Background -->
+    <canvas id="particles"></canvas>
+
+    <div id="app">
+        <!-- ===== SIDEBAR ===== -->
+        <aside id="sidebar">
+            <button id="sidebar-close" title="Zatvoriť">✕</button>
+            <div class="sidebar-header">
+                <div class="logo-wrap">
+                    <span class="logo-icon">⚡</span>
+                    <h1>Jarvis</h1>
+                </div>
+                <button id="new-chat-btn" title="Nový chat">✚</button>
+            </div>
+
+            <div class="mode-switcher">
+                <button class="mode-btn active" data-mode="jarvis">
+                    <span class="mode-icon">🤖</span>
+                    <span class="mode-label">Jarvis</span>
+                </button>
+                <button class="mode-btn" data-mode="coding">
+                    <span class="mode-icon">💻</span>
+                    <span class="mode-label">Coding</span>
+                </button>
+            </div>
+
+            <div id="history-list">
+                <div class="history-empty">✨ Nový chat</div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="model-badge-wrap">
+                    <span id="model-badge"></span>
+                </div>
+                <div id="context-bar" class="hidden">
+                    <div class="ctx-label"><span>🧠 Context</span><span id="ctx-pct">0%</span></div>
+                    <div class="ctx-track"><div class="ctx-fill" id="ctx-fill" style="width:0%"></div></div>
+                </div>
+                <div id="scroll-toggle">
+                    <span class="st-label">Auto-scroll</span>
+                    <button class="st-btn" id="st-btn" data-locked="true">🔒</button>
+                </div>
+                <div id="sidebar-tasks" class="hidden">
+                    <div class="sidebar-section-title">📋 Postup</div>
+                    <div id="sidebar-task-list"></div>
+                </div>
+                <div id="sidebar-stats" class="hidden">
+                    <span id="ss-tokens"></span>
+                    <span id="ss-time"></span>
+                </div>
+                <div id="sidebar-files" class="hidden">
+                    <div class="sidebar-section-title">📁 Súbory</div>
+                    <div id="sidebar-file-list"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ===== MAIN ===== -->
+        <main id="main">
+            <!-- Top bar -->
+            <div id="topbar">
+                <button id="menu-toggle" class="menu-toggle" title="Menu">☰</button>
+                <div class="topbar-left">
+                    <span id="mode-indicator" class="mode-indicator">🤖 Jarvis mód</span>
+                </div>
+                <div class="topbar-right">
+                    <span id="status-dot" class="status-dot online"></span>
+                    <span id="status-label">Online</span>
+                </div>
+            </div>
+
+            <!-- Chat -->
+            <div id="chat-container">
+                <div id="messages">
+                    <!-- Welcome -->
+                    <div class="welcome-message">
+                        <div class="welcome-icon">⚡</div>
+                        <div class="welcome-title">Jarvis je online</div>
+                        <div class="welcome-sub">Ako ti môžem pomôcť, Fogy? 👋</div>
+                        <div class="welcome-suggestions">
+                            <button class="suggestion-chip" data-text="Čo je nové v IT tomto týždni?">📰 Novinky</button>
+                            <button class="suggestion-chip" data-text="Ako dlho beží tento počítač?">💻 Stav PC</button>
+                            <button class="suggestion-chip" data-text="Napíš mi krátky príbeh o robotovi">📝 Príbeh</button>
+                            <button class="suggestion-chip" data-text="Aké mám voľné miesto na disku?">💾 Disk</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Typing indicator -->
+                <div id="typing-indicator" class="hidden">
+                    <div class="typing-avatar">⚡</div>
+                    <div class="typing-content">
+                        <div class="typing-dots">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="bottom-status" class="hidden">
+                    <span id="bs-icon">⚡</span>
+                    <span id="bs-text">Pripravený</span>
+                    <span id="bs-right">
+                        <span id="bs-tokens"></span>
+                        <span id="bs-time"></span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- ===== INPUT AREA ===== -->
+            <div id="input-area">
+                <div id="drag-overlay" class="hidden">
+                    <div class="drag-icon">📄</div>
+                    <div>Presuňte súbor sem</div>
+                </div>
+                <div id="upload-preview" class="hidden"></div>
+
+                <!-- Command suggestions dropdown -->
+                <div id="cmd-suggestions" class="hidden"></div>
+
+                <div class="input-row">
+                    <button id="upload-btn" title="Nahrať súbor">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    </button>
+                    <button id="camera-btn" title="Fotka z galerie" class="camera-btn">📷</button>
+                    <button id="files-btn" title="Vybrať z nahratých súborov">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    </button>
+                    <div class="textarea-wrap">
+                        <textarea id="message-input" rows="1" placeholder="Správa pre Jarvisa..." autofocus></textarea>
+                    </div>
+                    <button id="mic-btn" title="Hlasový vstup">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    </button>
+                    <button id="send-btn" title="Odoslať">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                </div>
+                <!-- File browser panel -->
+                <div id="file-browser" class="hidden">
+                    <div class="fb-header"><span>📁 Nahraté súbory</span><div class="fb-header-actions"><button id="fb-refresh" title="Obnoviť zoznam">🔄</button><button id="fb-close">×</button></div></div>
+                    <div id="fb-list"></div>
+                    <div id="fb-preview" class="hidden"></div>
+                </div>
+                <div class="input-hint">
+                    <span class="hint-item"><kbd>/</kbd> príkazy</span>
+                    <span class="hint-item"><kbd>Enter</kbd> odoslať</span>
+                    <span class="hint-item"><kbd>Shift+Enter</kbd> nový riadok</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <div id="sidebar-overlay"></div>
+    <script src="{{ url_for('static', filename='script.js') }}?v=19"></script>
+</body>
+</html>

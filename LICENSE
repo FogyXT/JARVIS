@@ -1,0 +1,61 @@
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+ Copyright (C) 2026 Patrik Fogoš
+ <https://github.com/FogyXT/JARVIS>
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU Affero General Public License as published
+ by the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU Affero General Public License for more details.
+
+ You should have received a copy of the GNU Affero General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+============================================================================
+ NOVEL CONTRIBUTIONS — All Rights Reserved
+============================================================================
+
+ The following concepts and implementations are original works by Patrik Fogoš
+ (FogyXT), created between June 8-13, 2026 as part of the JARVIS project:
+
+ 1. STANDBY NEURON AGENTS (tools/memory_agents.py)
+    - Domain-specialized AI agents that sleep on disk (DEEP_SLEEP = 0 RAM, 0 tokens)
+    - Sparse activation via trigger pattern matching + centroid similarity
+    - Consensus panel voting mechanism for multi-agent retrieval
+    - See: knowledge/research/standby-neuron-agents.md
+
+ 2. NEUROGENESIS (tools/memory_agents.py: neurogenesis())
+    - Automatic spawning of new memory agents from semantic clusters
+    - Tag-based and embedding-based domain detection
+    - Self-pruning of inactive (DEAD) agents
+    - See: knowledge/research/standby-neuron-agents.md
+
+ 3. FIVE-TIER BIOLOGICALLY-INSPIRED MEMORY ARCHITECTURE
+    - Episodic Buffer (hippocampal analog) with Ebbinghaus decay
+    - Semantic Store (neocortical analog) with hybrid dense+BM25 search
+    - Knowledge Graph (association cortex analog) with entity extraction
+    - Cold Archive (distributed cortex analog) with thaw capability
+    - Sleep-like consolidation pipeline with DeepSeek LLM integration
+    - See: knowledge/decisions/five-tier-memory-for-jarvis.md
+
+ 4. EBBIHHAUS FORGETTING CURVE FOR EPISODIC AI MEMORY (tools/episodic_memory.py)
+    - Mathematical implementation: score(t) = n_accesses^beta * exp(-lambda * delta_t) * importance
+    - Forget (0.05) and Promote (0.65) thresholds
+    - Access-based reinforcement with working→episodic overflow
+
+ PATENT NOTICE: The above concepts are NOT dedicated to the public domain.
+ While the code is licensed under AGPL-3.0, the underlying inventions remain
+ the intellectual property of Patrik Fogoš. Any patent applications based on
+ these concepts require prior written permission from the author.
+
+ For licensing inquiries, contact:
+   Patrik Fogoš
+   GitHub: https://github.com/FogyXT
+   Email: patrikf2008@gmail.com
+============================================================================

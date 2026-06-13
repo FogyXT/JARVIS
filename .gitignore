@@ -1,0 +1,80 @@
+# === SECRETS — NEVER COMMIT ===
+.env
+*.env
+!*.env.example
+
+# === API Keys & Tokens ===
+*_API_KEY
+*_TOKEN
+*_SECRET*
+*_PASSWORD
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# === Virtual environments ===
+venv/
+.venv/
+env/
+.env/
+
+# === Project data (local only) ===
+chroma_db/
+archive/
+*.db
+*.sqlite
+*.sqlite3
+knowledge_graph.db
+episodic_buffer.json
+jarvis_memory.json
+agents/
+sessions/
+
+# === Backups ===
+*.bak
+*.backup
+*.tmp
+*.temp
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# === Logs ===
+*.log
+jarvis.log
+
+# === Test artifacts ===
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === Claude ===
+.claude/
+
+# === Personal data (not for GitHub) ===
+instagram_contacts.json
+!instagram_contacts.example.json
+web_ui/uploads/
+web_ui/screenshot.png
+web_ui/memory.json
+web_ui/debug_lines.txt
+websearches/
+_part_*.txt
+screenshot.png
+submission-package.md
