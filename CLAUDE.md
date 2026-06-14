@@ -165,8 +165,9 @@ python -c "from tools.rag_memory import rag_search; print(rag_search('recent wor
 - **BEFORE any non-trivial task:** `query_memory("your query")` — agents wake on relevance, search their domain
 - **AFTER significant discoveries:** `store_memory("key", "value", text="context")` — agents add domain enrichment + cross-agent messages
 - **Quick lookup:** `memory("read", key=...)` — direct EpisodicBuffer hit, no agent overhead
-- **Semantic search:** `rag_search("query")` — hybrid dense+BM25 across all ChromaDB
-- **Periodically:** `consolidate_quick()` — decay, clustering, promotion (auto-scheduled every 5min)
+- **Full 5-tier search:** `memory_search("query")` — queries ALL tiers (Episodic → ChromaDB → KG → Cold Archive), merges and ranks results. Use this instead of rag_search() for any memory query
+- **Semantic search (Tier 3 only):** `rag_search("query")` — hybrid dense+BM25, ChromaDB only
+- **Periodically:** `consolidate_quick()` — decay, rescore, promotion (runs every ~10 turns via hook)
 
 **Integration:** `tools/memory.py` auto-routes through all tiers. `memory("save")` → Episodic + JSON + ChromaDB + KG. `memory("read")` → Episodic first, ChromaDB fallback, JSON last resort.
 

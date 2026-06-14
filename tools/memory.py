@@ -331,3 +331,70 @@ def memory_diagnose(query: str) -> str:
         lines.append(f"\n💾 TIER 5: ERROR — {e}")
 
     return "\n".join(lines)
+
+
+def memory_search(query: str, k: int = 5) -> str:
+    """Unified 5-tier search — queries ALL memory tiers and returns merged, ranked results.
+
+    Hits: EpisodicBuffer → ChromaDB → Knowledge Graph → Cold Archive.
+    Use this as your primary memory retrieval function instead of rag_search().
+    """
+    results = []
+
+    # Tier 1+2: EpisodicBuffer (fastest, most recent)
+    try:
+        from tools.episodic_memory import get_buffer
+        buf = get_buffer()
+        if buf:
+            for r in buf.retrieve(query=query, k=3):
+                results.append({"text": r["value"][:200], "score": int(r["score"] * 100),
+                               "source": f"episodic_{r['source']}", "key": r["key"]})
+    except Exception: pass
+
+    # Tier 3: ChromaDB hybrid search
+    try:
+        from tools.rag_memory import _hybrid_search, _ensure_init
+        _ensure_init()
+        for r in _hybrid_search(query, k=k, min_score=0.0):
+            if not any(e["text"][:60] == r["text"][:60] for e in results):
+                results.append({"text": r["text"][:200], "score": r["score"],
+                               "source": f"semantic_{r['metadata'].get('source','?')}", "key": r["id"]})
+    except Exception: pass
+
+    # Tier 4: Knowledge Graph
+    try:
+        from tools.knowledge_graph import get_graph
+        kg = get_graph()
+        ctx = kg.get_context(query, max_hops=2)
+        if ctx and len(ctx) > 20:
+            for line in ctx.split('\n')[1:5]:
+                clean = line.strip()
+                if clean and len(clean) > 5:
+                    results.append({"text": clean[:200], "score": 60,
+                                   "source": "knowledge_graph", "key": "kg"})
+    except Exception: pass
+
+    # Tier 5: Cold Archive
+    try:
+        from tools.cold_archive import get_archive
+        for r in get_archive().search(query, max_results=2):
+            results.append({"text": r.get("value","")[:200], "score": 40,
+                           "source": "cold_archive", "key": r.get("key","?")})
+    except Exception: pass
+
+    # Sort, deduplicate
+    results.sort(key=lambda x: x["score"], reverse=True)
+    seen, unique = set(), []
+    for r in results:
+        fp = r["text"][:80]
+        if fp not in seen:
+            seen.add(fp)
+            unique.append(r)
+
+    if not unique:
+        return "(nothing found in any of the 5 tiers)"
+
+    lines = [f'🧠 5-tier: "{query}"']
+    for i, r in enumerate(unique[:k]):
+        lines.append(f"  {i+1}. [{r['score']}%] [{r['source']}] {r['text'][:120]}")
+    return "\n".join(lines)
