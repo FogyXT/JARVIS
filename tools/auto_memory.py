@@ -49,6 +49,16 @@ FACT_PATTERNS = [
     (r"(?i)(completed|finished|done|hotov[oé]|dokončen[oé]|built|postavil|implemented)\s+(.+)", "progress", 0.7),
     # Deployments / publishing
     (r"(?i)(deploy|push|publish|release|zverejnil|vydal|nahral)\s+(.+)", "deploy", 0.8),
+    # NEW: Created / added
+    (r"(?i)(created|added|pridal|vytvoril|wrote|napísal)\s+(.+)", "progress", 0.7),
+    # NEW: Tests / testing
+    (r"(?i)(test|otestoval|verified|overil)\s+(.+)", "progress", 0.6),
+    # NEW: Sent / shared
+    (r"(?i)(sent|poslal|shared|zdieľal|posted|submitted)\s+(.+)", "deploy", 0.7),
+    # NEW: Configured / set up
+    (r"(?i)(configured|set up|nastavil|initialized|spustil)\s+(.+)", "tech", 0.7),
+    # NEW: Key facts (this is X, X is Y)
+    (r"(?i)(this is|toto je|it'?s a|je to)\s+(.+)", "fact", 0.4),
 ]
 
 # Counter — koľkokrát sme volali
@@ -97,7 +107,7 @@ def _extract_facts(text: str) -> list[dict]:
                     content = match.group(0).strip()
 
                 # Skip too short or too long
-                if len(content) < 8 or len(content) > 200:
+                if len(content) < 8 or len(content) > 300:
                     continue
 
                 # Clean up
@@ -150,10 +160,32 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
         _save_counter()
         return {"stored": 0, "facts": [], "consolidated": False}
 
-    # Store each fact
+    # Store each fact — skip duplicates already in buffer
     try:
         from tools.memory import memory
+        from tools.episodic_memory import get_buffer
+        buf = get_buffer()
+
         for fact in facts:
+            # Check if a very similar fact already exists
+            duplicate = False
+            if buf:
+                for item in buf.working + buf.episodic:
+                    # Compare normalized values (first 60 chars, lowercase)
+                    existing_val = item.value.lower().strip()[:60]
+                    new_val = fact["value"].lower().strip()[:60]
+                    if existing_val == new_val:
+                        duplicate = True
+                        break
+                    # Also check if the new fact is fully contained in existing
+                    if len(new_val) > 20 and new_val[:40] in existing_val:
+                        duplicate = True
+                        break
+
+            if duplicate:
+                log.debug(f"Skipping duplicate: {fact['value'][:60]}", module="auto_memory")
+                continue
+
             memory("save", fact["key"], fact["value"])
             _counter["facts_stored"] += 1
             log.debug(f"Auto-remembered: {fact['value'][:80]}",
