@@ -562,6 +562,13 @@ def _coding_chat_stream(history, session_id, prompt):
                 history.append({"role": "assistant", "content": [{"type": "text", "text": final}]})
                 conversations[session_id] = history
                 _auto_save(session_id, history)
+
+                # Auto-memory: extract facts from coding exchanges
+                try:
+                    from tools.auto_memory import auto_remember
+                    auto_remember(user_message=prompt, assistant_response=final)
+                except Exception:
+                    pass
                 return
 
             # Signal tool usage with reasoning-like display
@@ -617,6 +624,13 @@ def _coding_chat_stream(history, session_id, prompt):
         history.append({"role": "assistant", "content": final.content})
         conversations[session_id] = history
         _auto_save(session_id, history)
+
+        # Auto-memory: extract facts from coding fallback exchanges
+        try:
+            from tools.auto_memory import auto_remember
+            auto_remember(user_message=prompt, assistant_response=str(final.content))
+        except Exception:
+            pass
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
