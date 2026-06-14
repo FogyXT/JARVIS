@@ -169,6 +169,15 @@ TOTAL                          324/324 ✅
 
 ## License
 
-**AGPL-3.0** — Free for open source. Contact for commercial licensing.
+JARVIS is available under the **GNU Affero General Public License v3.0** (see [LICENSE](LICENSE)). In short: you're free to use, modify, and run it — but if you run a modified version as a network service, you must make that modified source available to your users under AGPL-3.0 too. If that doesn't work for your business (e.g. you want to build a closed-source SaaS on top of JARVIS without publishing your source), a **commercial license** without this requirement is available.
 
-Copyright (C) 2026 Patrik Fogoš | [patrikf2008@gmail.com](mailto:patrikf2008@gmail.com)
+### Original Design Contributions
+
+The following were originated by Patrik Fogoš (FogyXT) as part of the JARVIS project, first published June 2026:
+
+- **Standby Neuron Agents** ([tools/memory_agents.py](tools/memory_agents.py))
+- **Neurogenesis** / agent self-pruning
+- **Five-tier biologically-inspired memory architecture**
+- **Ebbinghaus-curve episodic scoring** ([tools/episodic_memory.py](tools/episodic_memory.py))
+
+For commercial licensing: [patrikf2008@gmail.com](mailto:patrikf2008@gmail.com)

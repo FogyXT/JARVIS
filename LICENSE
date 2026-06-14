@@ -18,44 +18,33 @@
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ============================================================================
- NOVEL CONTRIBUTIONS — All Rights Reserved
+ADDITIONAL TERM UNDER AGPL-3.0 SECTION 7
 ============================================================================
 
- The following concepts and implementations are original works by Patrik Fogoš
- (FogyXT), created between June 8-13, 2026 as part of the JARVIS project:
+ As a further restriction permitted under Section 7 of the GNU Affero
+ General Public License, any distribution or network-accessible deployment
+ of this Program, or a work based on it, must retain the following
+ attribution in its source code and in any "About" or credits screen:
 
- 1. STANDBY NEURON AGENTS (tools/memory_agents.py)
-    - Domain-specialized AI agents that sleep on disk (DEEP_SLEEP = 0 RAM, 0 tokens)
-    - Sparse activation via trigger pattern matching + centroid similarity
-    - Consensus panel voting mechanism for multi-agent retrieval
-    - See: knowledge/research/standby-neuron-agents.md
+     "Includes JARVIS, originally created by Patrik Fogoš (FogyXT)
+     — https://github.com/FogyXT/JARVIS"
 
- 2. NEUROGENESIS (tools/memory_agents.py: neurogenesis())
-    - Automatic spawning of new memory agents from semantic clusters
-    - Tag-based and embedding-based domain detection
-    - Self-pruning of inactive (DEAD) agents
-    - See: knowledge/research/standby-neuron-agents.md
+============================================================================
+ORIGINAL DESIGN CONTRIBUTIONS
+============================================================================
 
- 3. FIVE-TIER BIOLOGICALLY-INSPIRED MEMORY ARCHITECTURE
-    - Episodic Buffer (hippocampal analog) with Ebbinghaus decay
-    - Semantic Store (neocortical analog) with hybrid dense+BM25 search
-    - Knowledge Graph (association cortex analog) with entity extraction
-    - Cold Archive (distributed cortex analog) with thaw capability
-    - Sleep-like consolidation pipeline with DeepSeek LLM integration
-    - See: knowledge/decisions/five-tier-memory-for-jarvis.md
+ The following were originated by Patrik Fogoš (FogyXT) as part of the
+ JARVIS project, first published in this repository in June 2026:
 
- 4. EBBIHHAUS FORGETTING CURVE FOR EPISODIC AI MEMORY (tools/episodic_memory.py)
-    - Mathematical implementation: score(t) = n_accesses^beta * exp(-lambda * delta_t) * importance
-    - Forget (0.05) and Promote (0.65) thresholds
-    - Access-based reinforcement with working→episodic overflow
+ - Standby Neuron Agents (tools/memory_agents.py)
+ - Neurogenesis / agent self-pruning (tools/memory_agents.py)
+ - Five-tier biologically-inspired memory architecture
+ - Ebbinghaus-curve episodic scoring (tools/episodic_memory.py)
 
- PATENT NOTICE: The above concepts are NOT dedicated to the public domain.
- While the code is licensed under AGPL-3.0, the underlying inventions remain
- the intellectual property of Patrik Fogoš. Any patent applications based on
- these concepts require prior written permission from the author.
+ These are licensed under AGPL-3.0 as above. See "Commercial licensing"
+ in README.md for alternative terms.
 
  For licensing inquiries, contact:
    Patrik Fogoš
    GitHub: https://github.com/FogyXT
    Email: patrikf2008@gmail.com
-============================================================================
