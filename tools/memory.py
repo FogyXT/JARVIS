@@ -116,7 +116,7 @@ def memory(action, key=None, value=None):
                 _collection.upsert(
                     ids=[doc_id],
                     documents=[doc_text],
-                    metadatas=[{"key": key, "timestamp": time.time()}],
+                    metadatas=[{"key": key, "source": "json", "timestamp": time.time()}],
                 )
         except ImportError:
             pass
@@ -165,6 +165,23 @@ def memory(action, key=None, value=None):
                     buf.store(key, val, importance=0.5)
                     log.debug(f"Re-stored in buffer from JSON: {key}", module="memory")
                 return f"{key}: {val}"
+
+            # 4. Cold Archive (Tier 5) — thaw from long-term filesystem storage
+            try:
+                from tools.cold_archive import get_archive
+                archive = get_archive()
+                thawed = archive.thaw(key=key)
+                if thawed:
+                    val = thawed[0].get("value", "")
+                    # Re-store in upper tiers for faster future access
+                    if val:
+                        if buf:
+                            buf.store(key, val, importance=0.4)
+                        _save_memory(mem)
+                        return f"{key}: {val} (source: cold_archive)"
+            except Exception as e:
+                log.debug(f"Cold archive thaw failed: {e}", module="memory")
+
             return f"{key}: (neuložené)"
 
         # Celá pamäť
@@ -190,6 +207,16 @@ def memory(action, key=None, value=None):
                         base += f"\n📊 {line.strip()}"
                         break
         except ImportError:
+            pass
+
+        # Pridaj Knowledge Graph context (Tier 4 — was write-only, now queried during retrieval)
+        try:
+            from tools.knowledge_graph import get_graph
+            kg = get_graph()
+            kg_ctx = kg.get_context("general memory overview", max_hops=2)
+            if kg_ctx and kg_ctx != "(no graph context found)":
+                base += f"\n\n🧠 Knowledge Graph:\n{kg_ctx}"
+        except Exception:
             pass
 
         return base
@@ -223,3 +250,84 @@ def memory(action, key=None, value=None):
         return f"Kľúč '{key}' v pamäti nie je."
 
     return f"Neznáma akcia pamäte: {action}"
+
+
+def memory_diagnose(query: str) -> str:
+    """Diagnostic trace: show the full retrieval path for a query across all 5 tiers.
+
+    Returns a formatted report showing which tier found what, scores, and timing.
+    Use this to debug why a query returned or didn't return expected results.
+    """
+    import time as _time
+    lines = [f'🔍 MEMORY DIAGNOSE: "{query}"', "=" * 50]
+
+    # Tier 1+2: EpisodicBuffer
+    try:
+        from tools.episodic_memory import get_buffer
+        buf = get_buffer()
+        t0 = _time.perf_counter()
+        epi_results = buf.retrieve(query=query, k=3) if buf else []
+        epi_ms = (_time.perf_counter() - t0) * 1000
+        lines.append(f"\n📦 TIER 1+2 (Episodic, {epi_ms:.1f}ms):")
+        lines.append(f"   Buffer state: {buf.size() if buf else 'N/A'}")
+        if epi_results:
+            for r in epi_results:
+                lines.append(f"   ✅ [{r['score']:.3f}] [{r['source']}] {r['value'][:80]}")
+        else:
+            lines.append(f"   ❌ No results (buffer empty or no match)")
+    except Exception as e:
+        lines.append(f"\n📦 TIER 1+2: ERROR — {e}")
+
+    # Tier 3: ChromaDB hybrid search
+    try:
+        import tools.rag_memory as rm
+        rm._ensure_init()
+        t0 = _time.perf_counter()
+        sem_results = rm._hybrid_search(query, k=3, min_score=0.0)
+        sem_ms = (_time.perf_counter() - t0) * 1000
+        lines.append(f"\n🧬 TIER 3 (ChromaDB hybrid, {sem_ms:.1f}ms):")
+        if sem_results:
+            for r in sem_results:
+                lines.append(f"   ✅ [{r['score']}%] [{r['metadata'].get('source','?')}] {r['text'][:100]}")
+        else:
+            lines.append(f"   ❌ No results")
+    except Exception as e:
+        lines.append(f"\n🧬 TIER 3: ERROR — {e}")
+
+    # Tier 4: Knowledge Graph
+    try:
+        from tools.knowledge_graph import get_graph
+        kg = get_graph()
+        t0 = _time.perf_counter()
+        kg_ctx = kg.get_context(query, max_hops=2)
+        kg_ms = (_time.perf_counter() - t0) * 1000
+        lines.append(f"\n🔗 TIER 4 (Knowledge Graph, {kg_ms:.1f}ms):")
+        lines.append(f"   Entities: {kg.graph.number_of_nodes()}, Relations: {kg.graph.number_of_edges()}")
+        if kg_ctx and len(kg_ctx) > 20:
+            for line in kg_ctx.split('\n')[:5]:
+                clean = line.strip()
+                if clean and not clean.startswith('🕸'):
+                    lines.append(f"   ✅ {clean[:100]}")
+        else:
+            lines.append(f"   ❌ No graph context found")
+    except Exception as e:
+        lines.append(f"\n🔗 TIER 4: ERROR — {e}")
+
+    # Tier 5: Cold Archive
+    try:
+        from tools.cold_archive import get_archive
+        archive = get_archive()
+        t0 = _time.perf_counter()
+        arch_results = archive.search(query, max_results=3)
+        arch_ms = (_time.perf_counter() - t0) * 1000
+        lines.append(f"\n💾 TIER 5 (Cold Archive, {arch_ms:.1f}ms):")
+        lines.append(f"   Indexed keys: {len(archive._index)}")
+        if arch_results:
+            for r in arch_results:
+                lines.append(f"   ✅ {r.get('key','?')}: {r.get('value','')[:100]}")
+        else:
+            lines.append(f"   ❌ No archived results")
+    except Exception as e:
+        lines.append(f"\n💾 TIER 5: ERROR — {e}")
+
+    return "\n".join(lines)

@@ -79,3 +79,4 @@ _part_*.txt
 screenshot.png
 # === Drafts & local documents ===
 drafts/
+auto_memory_counter.json

@@ -162,8 +162,8 @@ python -c "from tools.rag_memory import rag_search; print(rag_search('recent wor
 | — Agents | `tools.memory_agents` | 3 domain agents (personal/tech/projects), 0 tokens idle |
 
 **When to use (PREFER agents over raw calls):**
-- **BEFORE any non-trivial task:** `route_and_act("query", action="retrieve")` — agents wake on relevance, search only their domain
-- **AFTER significant discoveries:** `route_and_act("text", action="store", key=..., value=...)` — agents add domain enrichment + cross-agent messages
+- **BEFORE any non-trivial task:** `query_memory("your query")` — agents wake on relevance, search their domain
+- **AFTER significant discoveries:** `store_memory("key", "value", text="context")` — agents add domain enrichment + cross-agent messages
 - **Quick lookup:** `memory("read", key=...)` — direct EpisodicBuffer hit, no agent overhead
 - **Semantic search:** `rag_search("query")` — hybrid dense+BM25 across all ChromaDB
 - **Periodically:** `consolidate_quick()` — decay, clustering, promotion (auto-scheduled every 5min)

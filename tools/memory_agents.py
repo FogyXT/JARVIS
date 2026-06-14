@@ -373,10 +373,9 @@ def neurogenesis(store: AgentStore = None, router: NeuronRouter = None) -> dict:
     try:
         from tools.episodic_memory import get_buffer
         buf = get_buffer()
-        if buf is None or buf.size()["total"] < MIN_MEMORIES_FOR_SPAWN:
-            return {"spawned": 0, "reason": "not enough memories"}
+        buffer_too_small = (buf is None or buf.size()["total"] < MIN_MEMORIES_FOR_SPAWN)
     except ImportError:
-        return {"spawned": 0, "reason": "buffer unavailable"}
+        buffer_too_small = True
 
     # Get all existing agent trigger patterns to avoid duplicates
     existing_patterns = set()
@@ -385,46 +384,48 @@ def neurogenesis(store: AgentStore = None, router: NeuronRouter = None) -> dict:
             existing_patterns.add(p)
 
     spawned = 0
+    tag_clusters = 0
 
-    # Strategy 1: Tag-based spawning
-    # Group buffer items by tags, spawn if cluster is big enough
-    tag_clusters: dict[str, list] = {}
-    for item in buf.working + buf.episodic:
-        for tag in (item.tags or []):
-            if tag not in ("test", "personal", "tech", "projects"):
-                if tag not in tag_clusters:
-                    tag_clusters[tag] = []
-                tag_clusters[tag].append(item)
+    if not buffer_too_small:
+        # Strategy 1: Tag-based spawning
+        # Group buffer items by tags, spawn if cluster is big enough
+        tag_clusters_dict: dict[str, list] = {}
+        for item in buf.working + buf.episodic:
+            for tag in (item.tags or []):
+                if tag not in ("test", "personal", "tech", "projects"):
+                    if tag not in tag_clusters_dict:
+                        tag_clusters_dict[tag] = []
+                    tag_clusters_dict[tag].append(item)
 
-    for tag, items in tag_clusters.items():
-        if len(items) >= MIN_MEMORIES_FOR_SPAWN:
-            agent_name = f"auto_{tag}_{len(items)}items"
-            if any(a["name"] == agent_name for a in store.list_all()):
-                continue
+        for tag, items in tag_clusters_dict.items():
+            if len(items) >= MIN_MEMORIES_FOR_SPAWN:
+                agent_name = f"auto_{tag}_{len(items)}items"
+                if any(a["name"] == agent_name for a in store.list_all()):
+                    continue
 
-            # Build trigger patterns from item keys
-            triggers = []
-            for item in items:
-                # Create regex from key words
-                key_words = re.findall(r'\w+', item.key.lower())
-                if key_words:
-                    triggers.append(r'\b' + r'\b.*\b'.join(key_words[:3]) + r'\b')
+                # Build trigger patterns from item keys
+                triggers = []
+                for item in items:
+                    key_words = re.findall(r'\w+', item.key.lower())
+                    if key_words:
+                        triggers.append(r'\b' + r'\b.*\b'.join(key_words[:3]) + r'\b')
 
-            # Deduplicate and keep top 5
-            triggers = list(set(triggers))[:5]
+                triggers = list(set(triggers))[:5]
 
-            agent = AgentConfig(
-                name=agent_name,
-                domain=tag,
-                description=f"Auto-spawned agent for {tag} ({len(items)} memories)",
-                trigger_patterns=triggers,
-                state="DEEP_SLEEP",
-                spawn_source="neurogenesis",
-            )
-            store.save(agent)
-            spawned += 1
-            log.info(f"Neurogenesis: spawned {agent_name} ({len(items)} items, {len(triggers)} triggers)",
-                    module="agents")
+                agent = AgentConfig(
+                    name=agent_name,
+                    domain=tag,
+                    description=f"Auto-spawned agent for {tag} ({len(items)} memories)",
+                    trigger_patterns=triggers,
+                    state="DEEP_SLEEP",
+                    spawn_source="neurogenesis",
+                )
+                store.save(agent)
+                spawned += 1
+                log.info(f"Neurogenesis: spawned {agent_name} ({len(items)} items, {len(triggers)} triggers)",
+                        module="agents")
+
+        tag_clusters = len(tag_clusters_dict)
 
     # Strategy 2: Embedding-cluster spawning
     # If consolidation finds semantic clusters, spawn agents for them
@@ -446,7 +447,7 @@ def neurogenesis(store: AgentStore = None, router: NeuronRouter = None) -> dict:
         except Exception:
             pass
 
-    return {"spawned": spawned, "tag_clusters": len(tag_clusters)}
+    return {"spawned": spawned, "tag_clusters": tag_clusters}
 
 
 # ── High-Level API ────────────────────────────────────────────────────────
@@ -469,13 +470,28 @@ def query_memory(query: str, k: int = 5) -> dict:
 
         # Agent retrieves from its domain
         try:
-            from tools.rag_memory import _hybrid_search
-            # Use agent's trigger patterns to filter
+            from tools.rag_memory import _hybrid_search, _ensure_init
+            # Ensure ChromaDB is initialized before first search (was missing — caused empty results)
+            _ensure_init()
+
             domain_results = _hybrid_search(query, k=max(2, k // len(woken)),
                                            min_score=0.0)
+
+            # Domain filtering: score results higher if they match agent's trigger patterns
             for r in domain_results:
+                text = r.get("text", "")
+                text_lower = text.lower()
+                domain_boost = 0.0
+                for pattern in agent.trigger_patterns:
+                    try:
+                        if re.search(pattern, text_lower):
+                            domain_boost += 0.1
+                    except re.error:
+                        pass
+                r["score"] = min(100, r["score"] + int(domain_boost * 100))
                 r["agent"] = agent.name
                 r["domain"] = agent.domain
+                r["domain_boost"] = round(domain_boost, 2)
             results.extend(domain_results)
         except Exception as e:
             log.warn(f"Agent {agent.name} search failed: {e}", module="agents")

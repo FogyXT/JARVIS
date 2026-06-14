@@ -501,6 +501,15 @@ def _load_claude_md():
 def _coding_chat_stream(history, session_id, prompt):
     """Coding mode: multi-tool loop with reasoning, timing, and stats."""
 
+    # Inject memory context into coding mode too
+    try:
+        from tools.context_builder import build_context
+        mem_ctx = build_context(prompt)
+        if mem_ctx:
+            prompt = f"{prompt}\n\n{mem_ctx}"
+    except Exception:
+        pass
+
     if DEEPSEEK_AVAILABLE:
         # Build system prompt with CLAUDE.md context + memories
         sys_prompt = CODING_SYSTEM_PROMPT + _load_claude_md()
@@ -1090,7 +1099,19 @@ def _jarvis_chat_stream(history, session_id, prompt):
         try:
             # Build messages for API call (don't mutate history until success)
             _msgs = list(history)
-            _msgs.append({"role": "user", "content": [{"type": "text", "text": prompt}]})
+
+            # Inject memory context into user message (context_builder pulls from all 5 tiers)
+            try:
+                from tools.context_builder import build_context
+                mem_ctx = build_context(prompt)
+                if mem_ctx:
+                    augmented_prompt = f"{prompt}\n\n{mem_ctx}"
+                else:
+                    augmented_prompt = prompt
+            except Exception:
+                augmented_prompt = prompt
+
+            _msgs.append({"role": "user", "content": [{"type": "text", "text": augmented_prompt}]})
 
             max_turns = 5
             for turn in range(max_turns):
@@ -1144,6 +1165,23 @@ def _jarvis_chat_stream(history, session_id, prompt):
             history.append({"role": "assistant", "content": [{"type": "text", "text": final_text}]})
             conversations[session_id] = history
             _auto_save(session_id, history)
+
+            # ── 5-Tier Memory Integration ──
+            # Auto-memory: extract and store facts from this exchange
+            try:
+                from tools.auto_memory import auto_remember
+                auto_remember(user_message=prompt, assistant_response=final_text)
+            except Exception:
+                pass
+
+            # Periodic consolidation: keep memory healthy (every ~10 exchanges)
+            try:
+                from tools.auto_memory import _counter
+                if _counter.get("calls", 0) % 10 == 0:
+                    from tools.consolidation import consolidate_quick
+                    consolidate_quick()
+            except Exception:
+                pass
 
             total_elapsed = round(time.time() - overall_start, 1)
             yield f"data: {json.dumps({'type': 'stats', 'elapsed_sec': total_elapsed})}\n\n"

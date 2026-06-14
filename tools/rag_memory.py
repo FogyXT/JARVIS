@@ -156,6 +156,10 @@ def _bm25_search(query: str, doc_ids: list[str], k: int = 20) -> list[tuple[str,
 def _hybrid_search(query: str, k: int = 5, min_score: float = 0.0,
                    filters: dict = None) -> list[dict]:
     """Dense + Sparse hybrid search s reciprocal rank fusion."""
+    # Guard against empty/whitespace queries
+    if not query or not query.strip():
+        return []
+
     if _collection is None:
         return []
 
@@ -191,10 +195,13 @@ def _hybrid_search(query: str, k: int = 5, min_score: float = 0.0,
     # Zoraď podľa fused score
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-    # Normalize scores to 0-100 range
-    max_score = max(s for _, s in ranked[:k]) if ranked else 1.0
-    if max_score == 0:
-        max_score = 1.0
+    # Fixed-scale normalization: use theoretical max RRF score (rank-0 in both
+    # dense and sparse = 2/60 ≈ 0.0333) instead of empirical max. This means
+    # nonsense queries get appropriately low scores instead of 100%.
+    THEORETICAL_MAX_RRF = 2.0 / 60.0  # ≈0.0333 — perfect rank-0 in both dense+sparse
+
+    if not ranked:
+        return []
 
     # Formátuj výsledky
     results = []
@@ -206,7 +213,9 @@ def _hybrid_search(query: str, k: int = 5, min_score: float = 0.0,
             continue
         doc_text = all_docs["documents"][idx] if all_docs.get("documents") else ""
         meta = all_docs["metadatas"][idx] if all_docs.get("metadatas") else {}
-        similarity = round((fused_score / max_score) * 100)  # normalize to 0-100
+        # Fixed-scale normalization: score relative to theoretical max RRF
+        similarity = round((fused_score / THEORETICAL_MAX_RRF) * 100)
+        similarity = min(100, similarity)  # cap at 100
 
         # Score threshold
         if similarity < min_score * 100:
@@ -310,6 +319,9 @@ def _index_knowledge_files():
     for root, dirs, files in os.walk(KNOWLEDGE_DIR):
         for fname in files:
             if not fname.endswith(".md"):
+                continue
+            # Skip template files — they contain generic placeholder text that pollutes search
+            if fname.startswith("_") or "TEMPLATE" in fname.upper():
                 continue
             fpath = os.path.join(root, fname)
             try:

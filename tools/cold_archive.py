@@ -48,6 +48,7 @@ class ColdArchive:
 
     def __init__(self, base_dir: str = ARCHIVE_DIR):
         self.base_dir = base_dir
+        os.makedirs(self.base_dir, exist_ok=True)  # ensure archive directory exists on disk
         self._index: dict[str, dict] = {}  # key → {file, index_in_file, ...}
         self._index_loaded = False
 

@@ -15,6 +15,8 @@ Použitie:
 import re
 import time
 import os
+import hashlib
+import json
 
 from tools.jarvis_logging import log
 
@@ -127,8 +129,10 @@ def _extract_facts(text: str) -> list[dict]:
                 if any(c.isdigit() for c in content):
                     importance = min(1.0, importance + 0.05)
 
+                # Content-hash key for persistent dedup (was: timestamp-based — caused 57-73% duplicates)
+                content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
                 facts.append({
-                    "key": f"auto_{fact_type}_{int(time.time())}_{len(facts)}",
+                    "key": f"auto_{fact_type}_{content_hash}",
                     "value": content,
                     "type": fact_type,
                     "importance": round(importance, 2),
@@ -160,33 +164,52 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
         _save_counter()
         return {"stored": 0, "facts": [], "consolidated": False}
 
-    # Store each fact — skip duplicates already in buffer
+    # Store each fact — skip duplicates in buffer AND persistent store
+    stored_count = 0
     try:
-        from tools.memory import memory
+        from tools.memory import memory, _load_memory
         from tools.episodic_memory import get_buffer
         buf = get_buffer()
 
+        # Load persistent JSON for cross-session dedup
+        persistent_mem = _load_memory()
+
         for fact in facts:
-            # Check if a very similar fact already exists
+            # Check if a very similar fact already exists (3-level dedup)
             duplicate = False
-            if buf:
+
+            # Level 1: Content-hash key already in persistent JSON
+            if fact["key"] in persistent_mem:
+                duplicate = True
+
+            # Level 2: EpisodicBuffer (in-memory)
+            if not duplicate and buf:
                 for item in buf.working + buf.episodic:
-                    # Compare normalized values (first 60 chars, lowercase)
                     existing_val = item.value.lower().strip()[:60]
                     new_val = fact["value"].lower().strip()[:60]
                     if existing_val == new_val:
                         duplicate = True
                         break
-                    # Also check if the new fact is fully contained in existing
                     if len(new_val) > 20 and new_val[:40] in existing_val:
                         duplicate = True
                         break
+
+            # Level 3: Check persistent JSON for near-duplicate values
+            if not duplicate:
+                for existing_val in persistent_mem.values():
+                    if isinstance(existing_val, str):
+                        ev = existing_val.lower().strip()[:60]
+                        nv = fact["value"].lower().strip()[:60]
+                        if ev == nv or (len(nv) > 20 and nv[:40] in ev):
+                            duplicate = True
+                            break
 
             if duplicate:
                 log.debug(f"Skipping duplicate: {fact['value'][:60]}", module="auto_memory")
                 continue
 
             memory("save", fact["key"], fact["value"])
+            stored_count += 1
             _counter["facts_stored"] += 1
             log.debug(f"Auto-remembered: {fact['value'][:80]}",
                      module="auto_memory",
@@ -208,7 +231,7 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
             log.warn(f"Auto-consolidation failed: {e}", module="auto_memory")
 
     _save_counter()
-    return {"stored": len(facts), "facts": facts, "consolidated": consolidated}
+    return {"stored": stored_count, "facts": facts, "consolidated": consolidated}
 
 
 def auto_remember_text(text: str) -> dict:

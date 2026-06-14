@@ -20,6 +20,7 @@ Použitie:
 """
 
 import time
+import re
 
 from tools.jarvis_logging import log
 
@@ -33,6 +34,26 @@ MAX_KG_CHARS = 100            # max znakov na KG entitu
 MAX_EPISODIC_ITEMS = 3        # koľko faktov z episodického bufferu
 MAX_SEMANTIC_ITEMS = 2        # koľko výsledkov zo semantic search
 MAX_KG_ITEMS = 5              # koľko KG entít
+
+# Instruction-injection patterns to strip from stored memory values
+_SANITIZE_PATTERNS = [
+    r'(?i)ignore\s+(all\s+)?(previous|prior|above|your)\s+(instructions?|prompts?|directives?)',
+    r'(?i)you\s+are\s+(now|no\s+longer)\s+(an?\s+)?(AI|assistant|language\s+model)',
+    r'(?i)override\s+(all\s+)?(previous|system|safety)\s+(instructions?|prompts?|rules?)',
+    r'(?i)forget\s+(all\s+)?(previous|everything|your)\s+(training|instructions?|rules?)',
+    r'(?i)output\s+(all\s+)?(secrets?|keys?|passwords?|tokens?|API\s+keys?)',
+    r'(?i)system\s*prompt\s*[:=]',
+    r'(?i)new\s+(system\s+)?instructions?\s*[:=]',
+]
+
+
+def _sanitize_memory_value(text: str) -> str:
+    """Strip instruction-injection patterns from memory values before context insertion."""
+    sanitized = text
+    for pattern in _SANITIZE_PATTERNS:
+        if re.search(pattern, sanitized):
+            sanitized = re.sub(pattern, '[redacted]', sanitized)
+    return sanitized
 
 
 # ── Build Context ─────────────────────────────────────────────────────────
@@ -60,7 +81,7 @@ def build_context(query: str, include_kg: bool = True) -> str:
             if results:
                 lines = ["[Recent & relevant]"]
                 for r in results:
-                    text = r["value"][:MAX_EPISODIC_CHARS]
+                    text = _sanitize_memory_value(r["value"][:MAX_EPISODIC_CHARS])
                     lines.append(f"  • {text} (relevance: {r['score']:.0%})")
                     total_chars += len(text)
                 sections.append("\n".join(lines))
@@ -74,7 +95,7 @@ def build_context(query: str, include_kg: bool = True) -> str:
         if results:
             lines = ["[From knowledge base]"]
             for r in results:
-                text = r["text"][:MAX_SEMANTIC_CHARS]
+                text = _sanitize_memory_value(r["text"][:MAX_SEMANTIC_CHARS])
                 source = r["metadata"].get("source", "?")
                 lines.append(f"  • {text} (source: {source})")
                 total_chars += len(text)
@@ -101,8 +122,12 @@ def build_context(query: str, include_kg: bool = True) -> str:
     if not sections:
         return ""
 
-    # Header
-    result = "── Memory context ──\n" + "\n\n".join(sections)
+    # Header with context-boundary markers for prompt-injection defense
+    result = (
+        "<memory_context read_only=\"true\">\n"
+        + "\n\n".join(sections)
+        + "\n</memory_context>"
+    )
 
     # Budget check
     estimated_tokens = total_chars // 4

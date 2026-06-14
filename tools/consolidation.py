@@ -482,7 +482,6 @@ def consolidate_quick() -> dict:
     results = {
         "mode": "quick",
         "decay": _stage_decay(buf),
-        "clusters": len(_stage_cluster(buf)),
         "rescore": _stage_rescore(buf),
         "promote": _stage_promote(buf),
     }
