@@ -6,6 +6,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.auto_memory import auto_remember, auto_remember_text, get_stats, _extract_facts
 
+# Clean auto_* keys from previous runs so dedup doesn't block test data
+try:
+    from tools.memory import _load_memory, _save_memory
+    mem = _load_memory()
+    cleaned = {k: v for k, v in mem.items() if not k.startswith('auto_')}
+    if len(cleaned) != len(mem):
+        _save_memory(cleaned)
+    from tools.episodic_memory import get_buffer
+    get_buffer().clear()
+except Exception:
+    pass
+
 PASS = "✅"; FAIL = "❌"
 total = passed = failed = 0
 

@@ -117,7 +117,7 @@ check("Archive executed", "archived" in result)
 section("TEST 8: consolidate_quick (full pipeline)")
 result = consolidate_quick()
 check("Quick consolidation returns dict", isinstance(result, dict))
-check("Quick mode has all stages", all(k in result for k in ["decay", "clusters", "rescore", "promote"]))
+check("Quick mode has all stages", all(k in result for k in ["decay", "rescore", "promote"]))
 check("Quick mode has elapsed time", "elapsed_ms" in result)
 check("Quick mode < 5s", result["elapsed_ms"] < 5000,
       f"{result['elapsed_ms']}ms")

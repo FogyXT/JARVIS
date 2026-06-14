@@ -486,6 +486,13 @@ def consolidate_quick() -> dict:
         "promote": _stage_promote(buf),
     }
 
+    # Persist buffer state to disk (prevents loss on server restart)
+    if buf:
+        try:
+            buf.save()
+        except Exception:
+            pass
+
     elapsed = (time.perf_counter() - t0) * 1000
     results["elapsed_ms"] = round(elapsed, 1)
     log.debug(f"Quick consolidation done ({elapsed:.1f}ms)", module="consolidation",

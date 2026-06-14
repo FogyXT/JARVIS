@@ -32,7 +32,7 @@ CONSOLIDATE_EVERY = 10
 # Patterns that indicate important facts worth storing
 FACT_PATTERNS = [
     # Rozhodnutia
-    (r"(?i)(rozhodli|decided|chose|picked|going with|will use)\s+.+", "decision", 0.7),
+    (r"(?i)(rozhodli|decided|chose|picked|going with|will use)\s+(.+)", "decision", 0.7),
     # Bugy
     (r"(?i)(bug|error|issue|problem|broken|fails?|crash)\s*[:—–-]\s*(.+)", "bug", 0.8),
     # Fixy
@@ -61,6 +61,19 @@ FACT_PATTERNS = [
     (r"(?i)(configured|set up|nastavil|initialized|spustil)\s+(.+)", "tech", 0.7),
     # NEW: Key facts (this is X, X is Y)
     (r"(?i)(this is|toto je|it'?s a|je to)\s+(.+)", "fact", 0.4),
+    # NEW: Personal facts — "my X is/are Y", "I have a X named Y"
+    (r"(?i)(my\s+\w+(?:\s+\w+)?\s+(?:is|are|was|were)\s+(?:named\s+)?)(.+)", "personal", 0.6),
+    (r"(?i)(i\s+have\s+(?:a|an|the)\s+)(.+)", "personal", 0.6),
+    # NEW: Named entities — "X is called/named Y"
+    (r"(?i)(\w+(?:\s+\w+)?\s+(?:is|are)\s+(?:called|named)\s+)(.+)", "personal", 0.6),
+    # NEW: User identity — "I am X", "I'm a X"
+    (r"(?i)(i\s+(?:am|'m)\s+(?:a|an|the|from|in|at)\s+)(.+)", "personal", 0.6),
+    # NEW: Possessions — "X has a Y", "X owns a Y"
+    (r"(?i)(\w+\s+(?:has|owns|possesses)\s+(?:a|an|the)\s+)(.+)", "personal", 0.5),
+    # NEW: Locations — "X lives in Y", "X is from Y"
+    (r"(?i)(\w+\s+(?:lives?\s+in|is\s+from|comes\s+from|pochádza\s+z|býva\s+v))\s+(.+)", "personal", 0.6),
+    # NEW: Preferences and attributes — "my favorite X is Y", "X's favorite Y is Z"
+    (r"(?i)((?:my|his|her|their|fogy'?s?)\s+(?:favorite|favourite)\s+\w+\s+(?:is|are))\s+(.+)", "preference", 0.6),
 ]
 
 # Counter — koľkokrát sme volali
@@ -109,11 +122,19 @@ def _extract_facts(text: str) -> list[dict]:
                     content = match.group(0).strip()
 
                 # Skip too short or too long
-                if len(content) < 8 or len(content) > 300:
+                if len(content) < 3 or len(content) > 300:
                     continue
 
                 # Clean up
                 content = content.strip(".,;:!?\"' \t\n")
+
+                # Truncate at first sentence boundary to avoid capturing assistant response
+                for sep in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
+                    idx = content.find(sep)
+                    if idx > 10:  # only truncate if we have meaningful content before
+                        content = content[:idx + 1]
+                        break
+
                 content = content[0].upper() + content[1:] if content else ""
 
                 # Skip duplicates
@@ -155,11 +176,21 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
     global _counter
     _counter["calls"] += 1
 
-    # Combine all text
-    combined = f"{user_message} {assistant_response} {context}"
+    # Extract facts from user message and assistant response separately
+    # (combined text causes cross-contamination — user facts leak into assistant text)
+    facts = _extract_facts(user_message)
+    facts += _extract_facts(assistant_response)
+    if context:
+        facts += _extract_facts(context)
 
-    # Extract facts
-    facts = _extract_facts(combined)
+    # Deduplicate within this batch
+    seen_keys = set()
+    unique_facts = []
+    for f in facts:
+        if f["key"] not in seen_keys:
+            seen_keys.add(f["key"])
+            unique_facts.append(f)
+    facts = unique_facts
     if not facts:
         _save_counter()
         return {"stored": 0, "facts": [], "consolidated": False}
