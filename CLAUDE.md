@@ -138,9 +138,18 @@ Before any change that alters behavior, describe:
 
 Prefer the smallest change that solves the problem. Prefer evolution over replacement.
 
-## 5-Tier Memory System (use proactively!)
+## 5-Tier Memory System (MANDATORY — use proactively!)
 
-JARVIS now has a **5-tier biologically-inspired memory system** (320 tests, all phases complete). You MUST use it proactively — do NOT wait to be told.
+JARVIS now has a **5-tier biologically-inspired memory system** (324 tests, all phases complete). You MUST use it — do NOT wait to be told.
+
+**FIRST THING EVERY SESSION:** Load memory and search what we were doing:
+```bash
+python -c "from tools.rag_memory import rag_search; print(rag_search('recent work jarvis'))"
+```
+
+**BEFORE any non-trivial task:** Search memory for relevant past knowledge.
+**AFTER any discovery/decision:** Store it immediately with `memory("save", key, value)`.
+**EVERY ~30 min:** Run `consolidate_quick()` to apply decay and promotion.
 
 **Tiers:**
 | Tier | Module | Purpose |
