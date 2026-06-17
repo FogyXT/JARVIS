@@ -80,6 +80,7 @@ def _ensure_init():
     _migrate_old_collection()
     _migrate_json_to_chroma()
     _index_knowledge_files()
+    _index_codebase()
 
     # Rebuild BM25 cache after migrations
     _rebuild_bm25_cache()
@@ -348,6 +349,134 @@ def _index_knowledge_files():
         _collection.upsert(ids=new_ids, documents=new_docs, metadatas=new_metas)
         log.info(f"Indexed {len(new_ids)} knowledge files → ChromaDB v2", module="rag")
         _rebuild_bm25_cache()
+
+
+# ── Codebase Indexing ────────────────────────────────────────────────────
+
+# Directories/files to skip when indexing code
+_CODBASE_SKIP_DIRS = {"__pycache__", ".git", ".claude", "chroma_db", "venv", "env",
+                       "node_modules", "hud", ".mypy_cache", ".pytest_cache"}
+_CODBASE_SKIP_FILES = {".env", ".gitignore", "episodic_buffer.json", "jarvis_memory.json",
+                       "auto_memory_counter.json", "requirements.txt"}
+_CODBASE_EXTENSIONS = {".py", ".js", ".html", ".css", ".md", ".json"}
+
+
+def _chunk_source_file(filepath: str, content: str) -> list[dict]:
+    """Chunk a source file by function/class definitions or by logical blocks."""
+    chunks = []
+    lines = content.split("\n")
+    rel_path = os.path.relpath(filepath, PROJECT_ROOT).replace("\\", "/")
+
+    # Try to chunk by Python function/class definitions
+    import re
+    func_pattern = re.compile(r'^\s*(?:async\s+)?def\s+(\w+)|^\s*class\s+(\w+)')
+    block_starts = []
+    for i, line in enumerate(lines):
+        m = func_pattern.match(line)
+        if m:
+            name = m.group(1) or m.group(2)
+            block_starts.append((i, name))
+
+    if block_starts and len(block_starts) >= 2:
+        # Chunk by function/class boundaries (include line number for uniqueness)
+        for j, (start_line, name) in enumerate(block_starts):
+            end_line = block_starts[j + 1][0] if j + 1 < len(block_starts) else len(lines)
+            chunk_lines = lines[start_line:end_line]
+            chunk_text = "\n".join(chunk_lines).strip()
+            if len(chunk_text) > 30:
+                chunks.append({
+                    "text": f"# {rel_path} → {name}() (line {start_line + 1})\n{chunk_text}",
+                    "name": f"{rel_path}:{name}:L{start_line + 1}",
+                })
+    else:
+        # No function boundaries found — chunk by ~50-line blocks
+        block_size = 50
+        for i in range(0, len(lines), block_size):
+            chunk_lines = lines[i:i + block_size]
+            chunk_text = "\n".join(chunk_lines).strip()
+            if len(chunk_text) > 20:
+                start_ln = i + 1
+                end_ln = min(i + block_size, len(lines))
+                chunks.append({
+                    "text": f"# {rel_path} (lines {start_ln}-{end_ln})\n{chunk_text}",
+                    "name": f"{rel_path}:L{start_ln}",
+                })
+
+    return chunks
+
+
+def _index_codebase():
+    """Index all project source files into ChromaDB for semantic code search."""
+    if _collection is None:
+        return
+
+    existing = {}
+    try:
+        all_docs = _collection.get()
+        if all_docs and all_docs.get("ids") and all_docs.get("metadatas"):
+            for doc_id, meta in zip(all_docs["ids"], all_docs["metadatas"]):
+                if doc_id.startswith("code:") and meta and "mtime" in meta:
+                    existing[doc_id] = meta["mtime"]
+    except Exception:
+        pass
+
+    new_ids, new_docs, new_metas = [], [], []
+    files_scanned = 0
+
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        # Skip excluded directories
+        dirs[:] = [d for d in dirs if d not in _CODBASE_SKIP_DIRS and not d.startswith(".")]
+
+        for fname in files:
+            if fname in _CODBASE_SKIP_FILES:
+                continue
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in _CODBASE_EXTENSIONS:
+                continue
+
+            fpath = os.path.join(root, fname)
+            try:
+                mtime = os.path.getmtime(fpath)
+            except OSError:
+                continue
+
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            if not content.strip():
+                continue
+
+            rel_path = os.path.relpath(fpath, PROJECT_ROOT).replace("\\", "/")
+            files_scanned += 1
+
+            # Chunk the file
+            chunks = _chunk_source_file(fpath, content)
+            if not chunks:
+                # Fallback: store the whole file
+                doc_id = f"code:{rel_path}"
+                if doc_id in existing and existing[doc_id] == mtime:
+                    continue
+                new_ids.append(doc_id)
+                new_docs.append(f"# {rel_path}\n\n{content[:8000]}")
+                new_metas.append({"source": "codebase", "path": rel_path, "mtime": mtime})
+            else:
+                for chunk in chunks:
+                    doc_id = f"code:{chunk['name']}"
+                    if doc_id in existing and existing[doc_id] == mtime:
+                        continue
+                    new_ids.append(doc_id)
+                    new_docs.append(chunk["text"][:8000])
+                    new_metas.append({"source": "codebase", "path": rel_path, "mtime": mtime})
+
+    if new_ids:
+        _collection.upsert(ids=new_ids, documents=new_docs, metadatas=new_metas)
+        log.info(f"Indexed {len(new_ids)} code chunks from {files_scanned} files → ChromaDB v2", module="rag")
+        _rebuild_bm25_cache()
+    else:
+        log.info(f"Codebase index up-to-date ({files_scanned} files)", module="rag")
 
 
 # ── Public API ────────────────────────────────────────────────────────────
