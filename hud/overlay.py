@@ -206,6 +206,9 @@ class HUD(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
+        # Drag state
+        self._drag_pos = None
+
         # Breathing animation (integrovaná do pozadia — žiadne orezávanie)
         self._breath = 1.0
         self._breath_anim = None
@@ -224,6 +227,23 @@ class HUD(QWidget):
         self._ft = QTimer(self)
         self._ft.timeout.connect(self._fade)
         self._ft.start(25)
+
+    # ── Drag to move ─────────────────────────────────────────────────
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None and event.buttons() == Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = None
+            event.accept()
 
     # ── Breathing animation ──────────────────────────────────────────
 
