@@ -381,7 +381,7 @@ def _describe_image(filename, session_id):
             b64 = base64.b64encode(f.read()).decode("utf-8")
         # Call Haiku (cheap vision model) to describe the image
         client = haiku_client or claude
-        model = HAIKU_MODEL if haiku_client else CLAUDE_MODEL
+        model = CLAUDE_MODEL  # Sonnet 4.6 for Jarvis mode
         resp = client.messages.create(
             model=model,
             max_tokens=500,
@@ -1318,7 +1318,7 @@ def main():
     port = int(os.getenv("WEBUI_PORT", 5000))
     host = os.getenv("WEBUI_HOST", "127.0.0.1")
 
-    jarvis_model_name = HAIKU_MODEL if haiku_client else CLAUDE_MODEL
+    jarvis_model_name = CLAUDE_MODEL  # Sonnet 4.6
     print(f"🤖 Jarvis mode: {jarvis_model_name} — tools: {len(JARVIS_TOOLS)}")
     if DEEPSEEK_AVAILABLE:
         print(f"💻 Coding mode: DeepSeek (5 tools, reasoning, stats)")
