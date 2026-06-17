@@ -497,8 +497,12 @@ def _memory_scheduler_loop() -> None:
         try:
             from tools.consolidation import is_idle
             if is_idle(IDLE_PAUSE_THRESHOLD):
-                log.debug("Auto-save skipped: system idle", module="auto_memory")
                 continue
+
+            # Skip if nothing new to save — don't waste cycles on empty buffer
+            with _buffer_lock:
+                if not _conversation_buffer:
+                    continue
 
             auto_save_from_conversation()
         except Exception as e:
