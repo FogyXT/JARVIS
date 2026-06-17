@@ -329,6 +329,18 @@ class HUD(QWidget):
         top.addWidget(self.status)
         top.addStretch()
 
+        # Web UI button
+        self.web_btn = QPushButton("🌐")
+        self.web_btn.setFixedSize(24, 24)
+        self.web_btn.setFont(QFont("Segoe UI", 11))
+        self.web_btn.setToolTip("Otvoriť Web UI v Opere")
+        self.web_btn.setStyleSheet(
+            "QPushButton { color: rgba(255,255,255,0.5); background: transparent; border: none; }"
+            "QPushButton:hover { color: #00D4FF; background: rgba(0,212,255,0.15); border-radius: 12px; }"
+        )
+        self.web_btn.clicked.connect(self._do_webui)
+        top.addWidget(self.web_btn)
+
         # X close button
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(22, 22)
