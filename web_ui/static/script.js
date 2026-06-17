@@ -870,7 +870,7 @@ async function sendMessage(text) {
 }
 
 // -------------------------------------------------------------------
-// Image upload
+// File upload (images, music, videos, docs — all types)
 // -------------------------------------------------------------------
 function updatePreview() {
     if (state.images.length === 0) {
@@ -903,7 +903,7 @@ function updatePreview() {
 uploadBtn.addEventListener('click', () => {
     const inp = document.createElement('input');
     inp.type = 'file';
-    inp.accept = 'image/*,.pdf,.txt,.py,.js,.html,.css,.json,.md';
+    inp.accept = '*/*';  // all file types — images, music, videos, docs, code, archives
     inp.multiple = true;
     inp.addEventListener('change', async () => {
         for (const f of inp.files) {
@@ -913,9 +913,15 @@ uploadBtn.addEventListener('click', () => {
                 // Ensure relative_path is set on the result
                 if (!uploadResult.relative_path) {
                     var ext = f.name.split('.').pop().toLowerCase();
-                    var isImg = ['jpg','jpeg','png','gif','webp','bmp','svg'].includes(ext);
-                    var cat = isImg ? 'images' : 'other';
-                    uploadResult.relative_path = 'uploads/' + state.sessionId + '/' + cat + '/' + f.name;
+                    // Map to server-side category
+                    var cat = 'other';
+                    if (['jpg','jpeg','png','gif','webp','bmp','svg','heic','heif'].includes(ext)) cat = 'images';
+                    else if (['mp4','avi','mkv','mov','wmv','flv','webm'].includes(ext)) cat = 'videos';
+                    else if (['mp3','wav','ogg','flac','aac','m4a','wma'].includes(ext)) cat = 'audio';
+                    else if (['zip','rar','7z','tar','gz','bz2','xz'].includes(ext)) cat = 'archives';
+                    else if (['pdf','txt','md','doc','docx','rtf'].includes(ext)) cat = 'documents';
+                    else if (['py','js','ts','html','css','json','xml'].includes(ext)) cat = 'code';
+                    uploadResult.relative_path = 'uploads/' + cat + '/' + f.name;
                 }
                 state.images.push(uploadResult);
             } catch (_) {}
@@ -968,7 +974,7 @@ const filesBtn = document.getElementById('files-btn');
 })();
 
 
-// Camera/gallery button (mobile photo upload)
+// Camera/gallery button (mobile file upload — all types)
 (function() {
     var camBtn = document.getElementById('camera-btn');
     if (camBtn) {
@@ -976,7 +982,7 @@ const filesBtn = document.getElementById('files-btn');
             e.stopPropagation();
             var inp = document.createElement('input');
             inp.type = 'file';
-            inp.accept = 'image/*';
+            inp.accept = '*/*';  // accept all file types (photos, music, videos, docs)
             inp.multiple = true;
             inp.onchange = async function() {
                 if (inp.files.length > 0) {
@@ -986,8 +992,14 @@ const filesBtn = document.getElementById('files-btn');
                             var uploadResult = await uploadFile(inp.files[i]);
                             if (!uploadResult.relative_path) {
                                 var ext = inp.files[i].name.split('.').pop().toLowerCase();
-                                var cat = ['jpg','jpeg','png','gif','webp','bmp','svg'].indexOf(ext) >= 0 ? 'images' : 'other';
-                                uploadResult.relative_path = 'uploads/' + state.sessionId + '/' + cat + '/' + inp.files[i].name;
+                                var cat2 = 'other';
+                                if (['jpg','jpeg','png','gif','webp','bmp','svg','heic','heif'].includes(ext)) cat2 = 'images';
+                                else if (['mp4','avi','mkv','mov','wmv','flv','webm'].includes(ext)) cat2 = 'videos';
+                                else if (['mp3','wav','ogg','flac','aac','m4a','wma'].includes(ext)) cat2 = 'audio';
+                                else if (['zip','rar','7z','tar','gz','bz2','xz'].includes(ext)) cat2 = 'archives';
+                                else if (['pdf','txt','md','doc','docx','rtf'].includes(ext)) cat2 = 'documents';
+                                else if (['py','js','ts','html','css','json','xml'].includes(ext)) cat2 = 'code';
+                                uploadResult.relative_path = 'uploads/' + cat2 + '/' + inp.files[i].name;
                             }
                             state.images.push(uploadResult);
                         } catch (_) {}
