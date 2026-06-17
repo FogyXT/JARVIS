@@ -30,7 +30,7 @@ Real memory — biological memory — is a **hierarchy of stores** with differen
 │  64 working + 256 episodic items                              │
 │  Ebbinghaus decay: n^0.3 · e^(-λt) · importance              │
 │  Forget threshold: 0.05                                       │
-│  Promote threshold: 0.65                                      │
+│  Promote threshold: 0.55                                      │
 │                          ↓                                    │
 │  TIER 3    SEMANTIC STORE          Brain: Neocortex           │
 │  ═══════════════════════════════   Speed: ~50ms               │
@@ -55,7 +55,7 @@ Real memory — biological memory — is a **hierarchy of stores** with differen
 │  Decay → Cluster → SemanticMerge(LLM) → Rescore →            │
 │  Promote → RelationshipFind(LLM) → Archive → Neurogenesis    │
 │                                                               │
-│  Quick: 60ms (no LLM, runs every 5 minutes)                   │
+│  Quick: <5ms (no LLM, runs every ~10 interactions)                   │
 │  Full:  ~3s  (DeepSeek-powered merge + relations)             │
 ├──────────────────────────────────────────────────────────────┤
 │  STANDBY NEURON AGENTS                                        │
@@ -99,17 +99,16 @@ pip install -r requirements.txt
 
 # Use the memory system
 python -c "
-from tools.memory import memory
-from tools.rag_memory import rag_search
+from tools.memory import memory, memory_search
 
-# Store a memory — goes to all 4 tiers automatically
+# Store a memory — goes to all 5 tiers automatically
 memory('save', 'my_fact', 'JARVIS uses a 5-tier memory architecture')
 
-# Read it back — EpisodicBuffer first, ChromaDB fallback
+# Read it back — EpisodicBuffer first, ChromaDB fallback, Cold Archive last resort
 print(memory('read', key='my_fact'))
 
-# Semantic search — hybrid dense+BM25
-print(rag_search('memory architecture'))
+# Full 5-tier search — queries ALL tiers and merges results
+print(memory_search('memory architecture'))
 "
 ```
 
@@ -119,15 +118,17 @@ print(rag_search('memory architecture'))
 
 ```
 test_episodic_memory.py         41/41 ✅   Ebbinghaus decay, overflow, reinforcement
-test_memory_integration.py      32/32 ✅   All 4 tiers tested together
+test_memory_integration.py      32/32 ✅   All 5 tiers tested together
 test_semantic_store.py          26/26 ✅   Hybrid search, BM25, score filtering
 test_knowledge_graph.py         37/37 ✅   Entity extraction, multi-hop, persistence
 test_consolidation.py           31/31 ✅   7-stage pipeline, idle detection, scheduler
 test_memory_agents.py           42/42 ✅   Wake/sleep, consensus, neurogenesis, pruning
 test_cold_archive.py            27/27 ✅   Archive, search, thaw, compact
 test_cross_tier_integration.py  88/88 ✅   Full E2E: store→retrieve→decay→consolidate
+test_adversarial.py             31/31 ✅   Prompt injection, edge cases, adversarial inputs
+test_auto_memory.py             13/13 ✅   Fact extraction, dedup, buffer persistence
 ──────────────────────────────────────────────────────────────────────────
-TOTAL                          324/324 ✅
+TOTAL                          368/369 ⚡  (1 pre-existing timing flake)
 ```
 
 ---
@@ -140,7 +141,7 @@ TOTAL                          324/324 ✅
 | EpisodicBuffer cosine search | <5ms |
 | Semantic hybrid search | ~200ms |
 | Knowledge Graph extraction | ~20ms |
-| Quick consolidation (7 stages, no LLM) | ~60ms |
+| Quick consolidation (no LLM) | <5ms |
 | Full consolidation (DeepSeek-powered) | ~3s |
 | Agent wake + score + sleep | ~50ms |
 
@@ -156,14 +157,16 @@ TOTAL                          324/324 ✅
 
 | File | What |
 |------|------|
+| [`tools/memory.py`](tools/memory.py) | Unified API — `memory` (save/read/delete) + `memory_search` (5-tier search) |
 | [`tools/memory_agents.py`](tools/memory_agents.py) | Standby Neuron Agents + Neurogenesis |
 | [`tools/episodic_memory.py`](tools/episodic_memory.py) | Episodic Buffer with Ebbinghaus decay |
-| [`tools/rag_memory.py`](tools/rag_memory.py) | Semantic Store v2 (hybrid search) |
-| [`tools/knowledge_graph.py`](tools/knowledge_graph.py) | Knowledge Graph (entity extraction) |
-| [`tools/consolidation.py`](tools/consolidation.py) | 7-stage sleep-like pipeline |
-| [`tools/cold_archive.py`](tools/cold_archive.py) | Cold Archive (long-term storage) |
-| [`tools/memory.py`](tools/memory.py) | Unified API (all 5 tiers) |
-| [`knowledge/`](knowledge/) | Research, architecture decisions, novelty analysis |
+| [`tools/rag_memory.py`](tools/rag_memory.py) | Semantic Store v2 (hybrid dense+BM25 search) |
+| [`tools/knowledge_graph.py`](tools/knowledge_graph.py) | Knowledge Graph (entity extraction, multi-hop) |
+| [`tools/consolidation.py`](tools/consolidation.py) | 7-stage sleep-like consolidation pipeline |
+| [`tools/cold_archive.py`](tools/cold_archive.py) | Cold Archive (long-term filesystem storage) |
+| [`tools/context_builder.py`](tools/context_builder.py) | Context injection (800-token budget, sanitized) |
+| [`tools/auto_memory.py`](tools/auto_memory.py) | Automatic fact extraction from conversations |
+| [`knowledge/`](knowledge/) | Research, architecture decisions, bug reports, novelty analysis |
 
 ---
 
