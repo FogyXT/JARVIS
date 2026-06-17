@@ -447,9 +447,34 @@ class HUD(QWidget):
 
     def _do_webui(self):
         try:
+            # Spusti Web UI server
             p = subprocess.Popen([sys.executable, _WEBUI_PATH], cwd=_PROJECT_ROOT)
             self._webui_proc = p  # udržať referenciu
-            self.status.setText("🌐 Web UI spustené")
+
+            # Otvor v Opere (alebo default browsri ak Opera nie je)
+            url = "http://127.0.0.1:5000"
+            time.sleep(0.8)  # nech server nabehne
+
+            opera_paths = [
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera\opera.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera GX\opera.exe"),
+                r"C:\Program Files\Opera\opera.exe",
+                r"C:\Program Files\Opera GX\opera.exe",
+            ]
+            opera_bin = None
+            for path in opera_paths:
+                if os.path.exists(path):
+                    opera_bin = path
+                    break
+
+            if opera_bin:
+                subprocess.Popen([opera_bin, url])
+                self.status.setText("🌐 Web UI v Opere")
+            else:
+                import webbrowser
+                webbrowser.open(url)
+                self.status.setText("🌐 Web UI spustené")
+
             self._show()
         except Exception as e:
             print(f"[HUD] webui: {e}")
