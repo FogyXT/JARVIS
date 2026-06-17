@@ -91,8 +91,8 @@ def _set_clipboard_image(image_path):
         return False
 
 # Importujeme funkcie z pod-modulov v tomto priečinku
-from .memory import memory
-from .rag_memory import rag_search, rag_save, rag_read, rag_delete
+from .memory import memory, memory_search
+from .rag_memory import rag_search, rag_save, rag_read, rag_delete  # rag_search kept for internal use; memory_search is the exposed tool
 import subprocess as _subprocess
 import sys as _sys
 import os as _os

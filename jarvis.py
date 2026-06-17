@@ -245,7 +245,7 @@ TOOLS:
 - download_file(url, save_path): stiahne akýkoľvek súbor z URL na disk. Kombinuj s image_search alebo vy a web_search.
 - take_screenshot: ONLY when blind navigation has failed and you need to see the screen.
 - memory: persistent key-value about Fogy. action ∈ {save, read, delete}. Memory is auto-loaded at session start.
-- rag_search(query): sémantické vyhľadávanie v dlhodobej pamäti. Nájde fakty o Fogyovi aj keď sa presne nezhodujú s kľúčom.
+- memory_search(query): PREHĽADÁ VŠETKY VRSTVY — Epizodickú pamäť (Tier 1+2), ChromaDB sémantiku (Tier 3), Knowledge Graph (Tier 4), aj Cold Archive (Tier 5). Výsledky zlúči a zoradí. Použi PRED AKOUKOĽVEK ÚLOHOU — aj keď si myslíš že odpoveď poznáš, pamäť vie viac než ty.
 - open_web_ui: spustí webové rozhranie JARVISa (http://127.0.0.1:5000). Použi keď Fogy povie "otvor web", "zapni web ui", "spusti web".
 - dismiss_hud: skryje HUD overlay. Kľúčová fráza: keď Fogy povie "ďakujem Jarvis" (alebo "to je všetko", "dismiss") — znamená to koniec konverzácie. Zavolaj dismiss_hud a NEODPOVEDAJ textom.
 - call_developer_agent: sub-agent rewrites jarvis.py or tools.py based on a natural-language task. Jarvis auto-restarts on success. Use this when Fogy asks you to change your own code.
@@ -564,12 +564,12 @@ AVAILABLE_TOOLS = [
         },
     },
     {
-        "name": "rag_search",
-        "description": "Sémantické vyhľadávanie v dlhodobej pamäti (fakty o Fogyovi A projektové znalosti z knowledge/). Nájde relevantné informácie aj keď sa presne nezhodujú s kľúčom. Použi pred komplexnými úlohami — môžeš nájsť predchádzajúce riešenia, bugy, alebo architektonické rozhodnutia.",
+        "name": "memory_search",
+        "description": "Prehľadá VŠETKY vrstvy pamäte naraz (Epizodická → ChromaDB → Knowledge Graph → Cold Archive), zlúči a zoradí výsledky. Toto je HLAVNÝ nástroj na vyhľadávanie v pamäti. Použi PRED akoukoľvek úlohou — aj keď si myslíš že odpoveď poznáš, pamäťový systém vie viac než ty. Hľadaj fakty o Fogyovi, projektové znalosti, predchádzajúce riešenia, bugy, rozhodnutia.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Čo hľadať (napr. 'ako funguje prepojenie s ChromaDB', 'bug s mikrofónom', 'kto je Miška')"},
+                "query": {"type": "string", "description": "Čo hľadať (napr. 'kto je Miška', 'bug s mikrofónom', 'architektúra pamäte', 'čo sme robili minule')"},
             },
             "required": ["query"],
         },

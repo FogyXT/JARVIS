@@ -279,8 +279,10 @@ def _execute_coding_tool(name, args, session_id="default"):
             return tools.get_news(args.get("language", "sk"), int(args.get("count", 5)))
         if name == "call_developer_agent":
             return tools.call_developer_agent(args.get("target_filename", ""), args.get("task_description", ""))
+        if name == "memory_search":
+            return tools.memory_search(args.get("query", ""))
         if name == "rag_search":
-            return tools.rag_search(args.get("query", ""))
+            return tools.rag_search(args.get("query", ""))  # legacy fallback
         if name == "search_and_list_images":
             return tools.search_and_list_images(args.get("query", ""), int(args.get("max_results", 5)))
         if name == "open_web_ui":
