@@ -245,7 +245,7 @@ TOOLS:
 - download_file(url, save_path): stiahne akýkoľvek súbor z URL na disk. Kombinuj s image_search alebo vy a web_search.
 - take_screenshot: ONLY when blind navigation has failed and you need to see the screen.
 - memory: persistent key-value about Fogy. action ∈ {save, read, delete}. Memory is auto-loaded at session start.
-- memory_search(query): PREHĽADÁ VŠETKY VRSTVY — Epizodickú pamäť (Tier 1+2), ChromaDB sémantiku (Tier 3), Knowledge Graph (Tier 4), aj Cold Archive (Tier 5). Výsledky zlúči a zoradí. Použi PRED AKOUKOĽVEK ÚLOHOU — aj keď si myslíš že odpoveď poznáš, pamäť vie viac než ty.
+- memory_search(query): PREHĽADÁ VŠETKY VRSTVY — Epizodickú pamäť (Tier 1+2), ChromaDB sémantiku (Tier 3), Knowledge Graph (Tier 4), aj Cold Archive (Tier 5). Výsledky zlúči a zoradí. VOLAJ AKO PRVÚ AKCIU pri KAŽDEJ správe od Fogyho. Ak nič nenájde, pokračuj — znamená to že k téme nemáme uložené žiadne znalosti. Nikdy nevynechaj tento krok.
 - open_web_ui: spustí webové rozhranie JARVISa (http://127.0.0.1:5000). Použi keď Fogy povie "otvor web", "zapni web ui", "spusti web".
 - dismiss_hud: skryje HUD overlay. Kľúčová fráza: keď Fogy povie "ďakujem Jarvis" (alebo "to je všetko", "dismiss") — znamená to koniec konverzácie. Zavolaj dismiss_hud a NEODPOVEDAJ textom.
 - call_developer_agent: sub-agent rewrites jarvis.py or tools.py based on a natural-language task. Jarvis auto-restarts on success. Use this when Fogy asks you to change your own code.
@@ -565,7 +565,7 @@ AVAILABLE_TOOLS = [
     },
     {
         "name": "memory_search",
-        "description": "Prehľadá VŠETKY vrstvy pamäte naraz (Epizodická → ChromaDB → Knowledge Graph → Cold Archive), zlúči a zoradí výsledky. Toto je HLAVNÝ nástroj na vyhľadávanie v pamäti. Použi PRED akoukoľvek úlohou — aj keď si myslíš že odpoveď poznáš, pamäťový systém vie viac než ty. Hľadaj fakty o Fogyovi, projektové znalosti, predchádzajúce riešenia, bugy, rozhodnutia.",
+        "description": "VOLAJ AKO PRVÚ AKCIU pri každej správe. Prehľadá VŠETKY vrstvy pamäte (Epizodická → ChromaDB → Knowledge Graph → Cold Archive), zlúči a zoradí výsledky. Ak nič nenájde, pokračuj — znamená to že k téme nemáme uložené žiadne znalosti. Nikdy nevynechaj tento krok. Hľadaj fakty o Fogyovi, projektové znalosti, kód, predchádzajúce riešenia, bugy, rozhodnutia.",
         "input_schema": {
             "type": "object",
             "properties": {
