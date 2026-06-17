@@ -17,6 +17,7 @@ import time
 import os
 import hashlib
 import json
+import threading
 
 from tools.jarvis_logging import log
 
@@ -28,6 +29,19 @@ COUNTER_FILE = os.path.join(PROJECT_ROOT, "auto_memory_counter.json")
 
 # How often to run consolidation (every N calls)
 CONSOLIDATE_EVERY = 10
+
+# Time-based auto-save (runs regardless of consolidation count)
+AUTO_SAVE_INTERVAL = int(os.environ.get("AUTO_SAVE_INTERVAL", "300"))      # 5 min between ticks
+IDLE_PAUSE_THRESHOLD = int(os.environ.get("IDLE_PAUSE_THRESHOLD", "900"))  # 15 min idle → pause
+
+# Conversation buffer — accumulates exchanges for timer-based auto-save
+_conversation_buffer = []   # list of {user, assistant, timestamp}
+_buffer_lock = threading.Lock()
+MAX_CONVERSATION_BUFFER = 20
+
+# Scheduler thread
+_scheduler_thread = None
+_scheduler_running = False
 
 # Patterns that indicate important facts worth storing
 FACT_PATTERNS = [
@@ -101,10 +115,110 @@ def _save_counter():
 _load_counter()
 
 
+# ── Conversation Buffer ───────────────────────────────────────────────────
+
+def _add_to_conversation_buffer(user_msg: str = "", assistant_resp: str = "") -> None:
+    """Append an exchange to the rolling conversation buffer (thread-safe)."""
+    if not user_msg and not assistant_resp:
+        return
+    with _buffer_lock:
+        _conversation_buffer.append({
+            "user": user_msg,
+            "assistant": assistant_resp,
+            "timestamp": time.time(),
+        })
+        while len(_conversation_buffer) > MAX_CONVERSATION_BUFFER:
+            _conversation_buffer.pop(0)
+
+
+# ── LLM Extraction ────────────────────────────────────────────────────────
+
+LLM_EXTRACTION_PROMPT = """Extract ALL meaningful information from the following conversation exchange.
+Do NOT limit yourself to predefined categories. Save everything worth remembering —
+decisions, bugs, fixes, preferences, personal information, code architecture,
+project details, technical choices, goals, discoveries, progress, configuration,
+research findings, casual mentions, offhand comments, user context, file changes,
+tool usage patterns — EVERYTHING that might be useful later.
+
+For each fact, return:
+- key: short unique identifier (snake_case, max 40 chars)
+- value: the complete fact (1-3 sentences, preserves technical detail)
+- type: one of [decision, bug, fix, preference, personal, tech, architecture, plan, discovery, progress, deploy, fact, research, context]
+- importance: float 0.1-1.0 (higher = more critical to remember)
+
+CRITICAL RULES:
+- If code was changed: save WHAT file, WHAT change, WHY
+- If research was done: save findings, sources, conclusions
+- If user shared personal info: save it (name, location, preferences, tools, goals)
+- If a bug was discussed: save symptoms, root cause, fix
+- If architecture was discussed: save design decisions, trade-offs
+- Err on the side of saving MORE. Better 10 redundant facts than 1 missed insight.
+
+Conversation:
+{text}
+
+Return ONLY a JSON array of objects, nothing else. Example:
+[{"key": "fixed_login_timeout", "value": "Fixed login timeout bug in auth.py by increasing timeout to 30s and adding retry logic", "type": "fix", "importance": 0.9}]
+If nothing meaningful to extract, return []"""
+
+
+def _llm_extract_facts(text: str) -> list[dict]:
+    """Use DeepSeek to extract meaningful facts from conversation text.
+
+    Returns list of {key, value, type, importance} dicts.
+    Falls back to empty list on any failure.
+    """
+    if not text or len(text.strip()) < 20:
+        return []
+
+    prompt = LLM_EXTRACTION_PROMPT.replace("{text}", text[:8000])  # safety cap
+
+    try:
+        from tools.llm_helper import call_deepseek
+        result = call_deepseek(prompt, max_tokens=2000, temperature=0.1)
+        if not result:
+            return []
+
+        # Strip markdown fences if present
+        result = result.strip()
+        if result.startswith("```"):
+            result = result.split("\n", 1)[-1] if "\n" in result else result[3:]
+            if result.endswith("```"):
+                result = result[:-3]
+
+        facts = json.loads(result)
+        if not isinstance(facts, list):
+            return []
+
+        # Validate and normalize
+        validated = []
+        for f in facts:
+            if not all(k in f for k in ["key", "value", "type"]):
+                continue
+            value = str(f["value"])[:300]
+            if len(value) < 3:
+                continue
+            content_hash = hashlib.sha256(value.encode()).hexdigest()[:16]
+            validated.append({
+                "key": f"auto_{f['type']}_{content_hash}",
+                "value": value,
+                "type": str(f["type"]),
+                "importance": min(1.0, max(0.1, float(f.get("importance", 0.5)))),
+            })
+        return validated
+    except (json.JSONDecodeError, ValueError, Exception) as e:
+        log.debug(f"LLM extraction failed: {e}", module="auto_memory")
+        return []
+
+
 # ── Fact Extraction ───────────────────────────────────────────────────────
 
 def _extract_facts(text: str) -> list[dict]:
-    """Extrahuj dôležité fakty z textu pomocou patternov."""
+    """Extrahuj dôležité fakty z textu pomocou patternov.
+
+    DEPRECATED: kept as fallback when DEEPSEEK_API_KEY is not available.
+    Use _llm_extract_facts() for AI-powered extraction without hardcoded patterns.
+    """
     facts = []
     seen = set()
 
@@ -169,6 +283,7 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
     """Automaticky ulož dôležité fakty z konverzácie.
 
     Volaj po každej výmene (user message + assistant response).
+    Uses LLM extraction (DeepSeek) when available, regex patterns as fallback.
 
     Returns:
         {"stored": N, "facts": [...], "consolidated": bool}
@@ -176,12 +291,22 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
     global _counter
     _counter["calls"] += 1
 
-    # Extract facts from user message and assistant response separately
-    # (combined text causes cross-contamination — user facts leak into assistant text)
-    facts = _extract_facts(user_message)
-    facts += _extract_facts(assistant_response)
+    # Add to conversation buffer for time-based auto-save
+    _add_to_conversation_buffer(user_message, assistant_response)
+
+    # Extract facts — LLM first, regex fallback
+    combined = f"User: {user_message}\nAssistant: {assistant_response}"
     if context:
-        facts += _extract_facts(context)
+        combined += f"\nContext: {context}"
+
+    facts = _llm_extract_facts(combined)
+
+    if not facts:
+        # Fallback: regex patterns (works without API key)
+        facts = _extract_facts(user_message)
+        facts += _extract_facts(assistant_response)
+        if context:
+            facts += _extract_facts(context)
 
     # Deduplicate within this batch
     seen_keys = set()
@@ -268,6 +393,132 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
 def auto_remember_text(text: str) -> dict:
     """Skratka — automaticky si zapamätaj z jedného textu."""
     return auto_remember(assistant_response=text)
+
+
+# ── Time-Based Auto-Save Scheduler ────────────────────────────────────────
+
+def auto_save_from_conversation() -> dict:
+    """Drain the conversation buffer and save everything via LLM extraction.
+
+    Called by the scheduler timer every AUTO_SAVE_INTERVAL seconds.
+    Drains ALL buffered exchanges at once to minimize API calls.
+    """
+    with _buffer_lock:
+        if not _conversation_buffer:
+            return {"stored": 0, "facts": []}
+        exchanges = list(_conversation_buffer)
+        _conversation_buffer.clear()
+
+    # Build combined text from all buffered exchanges
+    parts = []
+    for ex in exchanges:
+        if ex["user"] or ex["assistant"]:
+            parts.append(f"User: {ex['user']}\nAssistant: {ex['assistant']}")
+    combined = "\n---\n".join(parts)
+
+    if not combined.strip():
+        return {"stored": 0, "facts": []}
+
+    # Extract facts via LLM
+    facts = _llm_extract_facts(combined)
+    if not facts:
+        return {"stored": 0, "facts": []}
+
+    # Dedup and save (same logic as auto_remember)
+    seen_keys = set()
+    unique_facts = []
+    for f in facts:
+        if f["key"] not in seen_keys:
+            seen_keys.add(f["key"])
+            unique_facts.append(f)
+    facts = unique_facts
+
+    stored_count = 0
+    try:
+        from tools.memory import memory, _load_memory
+        from tools.episodic_memory import get_buffer
+        buf = get_buffer()
+        persistent_mem = _load_memory()
+
+        for fact in facts:
+            duplicate = False
+
+            # Level 1: content-hash in persistent JSON
+            if fact["key"] in persistent_mem:
+                duplicate = True
+
+            # Level 2: EpisodicBuffer
+            if not duplicate and buf:
+                for item in buf.working + buf.episodic:
+                    existing_val = item.value.lower().strip()[:60]
+                    new_val = fact["value"].lower().strip()[:60]
+                    if existing_val == new_val or (len(new_val) > 20 and new_val[:40] in existing_val):
+                        duplicate = True
+                        break
+
+            # Level 3: persistent JSON near-duplicate
+            if not duplicate:
+                for existing_val in persistent_mem.values():
+                    if isinstance(existing_val, str):
+                        ev = existing_val.lower().strip()[:60]
+                        nv = fact["value"].lower().strip()[:60]
+                        if ev == nv or (len(nv) > 20 and nv[:40] in ev):
+                            duplicate = True
+                            break
+
+            if duplicate:
+                continue
+
+            memory("save", fact["key"], fact["value"])
+            stored_count += 1
+            _counter["facts_stored"] += 1
+    except Exception as e:
+        log.warn(f"Auto-save store failed: {e}", module="auto_memory")
+
+    _save_counter()
+    if stored_count:
+        log.info(f"Auto-saved {stored_count} facts from {len(exchanges)} exchanges",
+                 module="auto_memory")
+
+    return {"stored": stored_count, "facts": facts}
+
+
+def _memory_scheduler_loop() -> None:
+    """Daemon thread: auto-save every AUTO_SAVE_INTERVAL seconds when not idle."""
+    global _scheduler_running
+    log.info(f"Auto-save scheduler started (interval={AUTO_SAVE_INTERVAL}s, idle={IDLE_PAUSE_THRESHOLD}s)",
+             module="auto_memory")
+
+    while _scheduler_running:
+        time.sleep(AUTO_SAVE_INTERVAL)
+        if not _scheduler_running:
+            break
+
+        try:
+            from tools.consolidation import is_idle
+            if is_idle(IDLE_PAUSE_THRESHOLD):
+                log.debug("Auto-save skipped: system idle", module="auto_memory")
+                continue
+
+            auto_save_from_conversation()
+        except Exception as e:
+            log.warn(f"Auto-save tick failed: {e}", module="auto_memory")
+
+
+def start_auto_save_scheduler() -> None:
+    """Start the auto-save daemon thread. Safe to call multiple times."""
+    global _scheduler_thread, _scheduler_running
+    if _scheduler_thread and _scheduler_thread.is_alive():
+        return
+
+    _scheduler_running = True
+    _scheduler_thread = threading.Thread(
+        target=_memory_scheduler_loop,
+        daemon=True,
+        name="auto-save-scheduler",
+    )
+    _scheduler_thread.start()
+    log.info("Auto-save scheduler daemon started", module="auto_memory")
 
 
 def get_stats() -> dict:

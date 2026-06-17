@@ -195,23 +195,13 @@ def _stage_cluster(buf) -> list[list[dict]]:
 # ── LLM Helper (DeepSeek V4 Flash) ────────────────────────────────────────
 
 def _deepseek_quick(prompt: str, max_tokens: int = 300) -> str:
-    """Zavolá DeepSeek V4 Flash pre rýchlu, lacnú odpoveď."""
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    if not api_key:
-        log.warn("DEEPSEEK_API_KEY not set — using deterministic fallback", module="consolidation")
-        return ""
+    """Zavolá DeepSeek V4 Flash pre rýchlu, lacnú odpoveď.
 
+    Delegates to shared llm_helper.call_deepseek().
+    """
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-        resp = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0.1,  # low temp = konzistentné
-            stream=False,
-        )
-        return resp.choices[0].message.content.strip()
+        from tools.llm_helper import call_deepseek
+        return call_deepseek(prompt, max_tokens=max_tokens, temperature=0.1)
     except Exception as e:
         log.warn(f"DeepSeek call failed: {e}", module="consolidation")
         return ""

@@ -10,7 +10,13 @@ def main():
     try:
         hook_input = json.load(sys.stdin) if not sys.stdin.isatty() else {}
     except: hook_input = {}
-    
+
+    try:
+        # Mark activity for auto-save idle detection
+        from tools.consolidation import touch
+        touch()
+    except Exception: pass
+
     try:
         # Periodic consolidation every ~10 calls
         counter_file = os.path.join(PROJECT_ROOT, "auto_memory_counter.json")

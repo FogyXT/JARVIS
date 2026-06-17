@@ -1082,6 +1082,13 @@ def api_config():
 @app.route("/api/chat", methods=["POST"])
 @login_required
 def chat():
+    # Mark user activity for auto-save idle detection
+    try:
+        from tools.consolidation import touch
+        touch()
+    except ImportError:
+        pass
+
     data = request.json or {}
     mode = data.get("mode", "coding")
     session_id = data.get("session_id", "coding_main")
@@ -1374,6 +1381,14 @@ def main():
     print(f"🌐 http://{host}:{port}")
     print(f"📁 Upload limit: 500 MB")
     print(f"Press Ctrl+C to stop.")
+
+    # Start time-based auto-save scheduler
+    try:
+        from tools.auto_memory import start_auto_save_scheduler
+        start_auto_save_scheduler()
+        print(f"⏱️  Auto-save scheduler: every {os.getenv('AUTO_SAVE_INTERVAL', '300')}s (idle pause: {os.getenv('IDLE_PAUSE_THRESHOLD', '900')}s)")
+    except Exception:
+        pass
 
     os.makedirs(os.path.join(os.path.dirname(__file__), "templates"), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), "static"), exist_ok=True)
