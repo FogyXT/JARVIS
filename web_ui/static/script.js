@@ -1029,6 +1029,12 @@ async function refreshFileBrowser() {
     if (!fileBrowser || fileBrowser.classList.contains('hidden')) return;
     var previewEl = document.getElementById('fb-preview');
     try {
+        // Save expanded state before rebuilding HTML
+        var expandedCats = {};
+        fbList.querySelectorAll('.fb-category-items[data-cat]').forEach(function(el) {
+            expandedCats[el.dataset.cat] = !el.classList.contains('collapsed');
+        });
+
         var r = await fetch('/api/uploads/' + encodeURIComponent(state.sessionId));
         var data = await r.json();
         var categories = data.categories || {};
@@ -1046,8 +1052,13 @@ async function refreshFileBrowser() {
                 continue;
             }
 
-            html += '<div class="fb-category-header" data-cat="' + cat + '">' + catIcon + ' ' + catLabel + ' <span class="fb-toggle">▼</span></div>';
-            html += '<div class="fb-category-items collapsed" data-cat="' + cat + '">';
+            // Restore expanded state if previously open
+            var wasExpanded = expandedCats[cat];
+            var collapsedClass = wasExpanded ? '' : ' collapsed';
+            var toggleArrow = wasExpanded ? '▼' : '▶';
+
+            html += '<div class="fb-category-header" data-cat="' + cat + '">' + catIcon + ' ' + catLabel + ' <span class="fb-toggle">' + toggleArrow + '</span></div>';
+            html += '<div class="fb-category-items' + collapsedClass + '" data-cat="' + cat + '">';
             for (var fi = 0; fi < files.length; fi++) {
                 var f = files[fi];
                 var icon = getFileIcon(f.filename);

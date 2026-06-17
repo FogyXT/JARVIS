@@ -655,9 +655,9 @@ def upload_file():
     # Bezpečnosť: strip path separators from filename
     filename = os.path.basename(file.filename) or "upload.bin"
 
-    # Save to disk in session-scoped uploads directory, categorized by file type
+    # Save to disk in shared uploads directory (all modes share files)
     category = _get_file_category(filename)
-    session_upload_dir = os.path.join(_UPLOADS_DIR, session_id, category)
+    session_upload_dir = os.path.join(_UPLOADS_DIR, category)
     os.makedirs(session_upload_dir, exist_ok=True)
     save_path = os.path.join(session_upload_dir, filename)
     # Avoid name collisions by appending a number if needed
@@ -676,7 +676,7 @@ def upload_file():
 
     file_size = os.path.getsize(save_path) if os.path.exists(save_path) else len(data) * 3 // 4
     # Return relative saved_path for the AI to reference
-    relative_path = f"uploads/{session_id}/{category}/{filename}"
+    relative_path = f"uploads/{category}/{filename}"
     return jsonify({
         "data": data,
         "media_type": media_type,
@@ -717,40 +717,21 @@ def list_uploads(session_id):
 @app.route("/api/uploads/<session_id>/<path:filename>")
 @login_required
 def serve_upload(session_id, filename):
-    """Serve an uploaded file. Searches current session, all other sessions, global pool."""
+    """Serve an uploaded file from shared uploads directory (all modes share)."""
     from flask import send_from_directory, abort
     all_cat_names = list(_FILE_CATEGORIES.keys()) + ["other"]
 
-    def _try_serve(base_dir):
-        direct = os.path.join(base_dir, filename)
-        if os.path.isfile(direct):
-            return send_from_directory(base_dir, filename)
-        for cat_name in all_cat_names:
-            cat_dir = os.path.join(base_dir, cat_name)
-            candidate = os.path.join(cat_dir, filename)
-            if os.path.isfile(candidate):
-                return send_from_directory(cat_dir, filename)
-        return None
+    # Direct path
+    direct = os.path.join(_UPLOADS_DIR, filename)
+    if os.path.isfile(direct):
+        return send_from_directory(_UPLOADS_DIR, filename)
 
-    # 1) Current session
-    session_dir = os.path.join(_UPLOADS_DIR, session_id)
-    result = _try_serve(session_dir)
-    if result:
-        return result
-
-    # 2) Global pool
-    result = _try_serve(_UPLOADS_DIR)
-    if result:
-        return result
-
-    # 3) All other session directories
-    if os.path.isdir(_UPLOADS_DIR):
-        for dirname in sorted(os.listdir(_UPLOADS_DIR)):
-            if dirname == session_id or dirname in all_cat_names:
-                continue
-            result = _try_serve(os.path.join(_UPLOADS_DIR, dirname))
-            if result:
-                return result
+    # Category subdirectory
+    for cat_name in all_cat_names:
+        cat_dir = os.path.join(_UPLOADS_DIR, cat_name)
+        candidate = os.path.join(cat_dir, filename)
+        if os.path.isfile(candidate):
+            return send_from_directory(cat_dir, filename)
 
     abort(404)
 
@@ -1242,55 +1223,36 @@ def _get_file_category(filename):
     return "other"
 
 def _scan_upload_files(session_id):
-    session_dir = os.path.join(_UPLOADS_DIR, session_id)
+    """Scan shared uploads directory (all modes share the same files)."""
     result = {}
     all_cat_names = list(_FILE_CATEGORIES.keys()) + ["other"]
 
-    # Helper: scan a directory for categorized files
-    def _scan_dir(base_dir, rel_prefix=""):
-        if not os.path.isdir(base_dir):
-            return
-        # Scan category subdirectories
-        for cat_name in all_cat_names:
-            cat_dir = os.path.join(base_dir, cat_name)
-            if not os.path.isdir(cat_dir):
-                continue
-            for fname in sorted(os.listdir(cat_dir)):
-                fpath = os.path.join(cat_dir, fname)
-                if os.path.isfile(fpath):
-                    rel = rel_prefix + f"{cat_name}/{fname}"
-                    if cat_name not in result:
-                        result[cat_name] = []
-                    existing = {entry[0] for entry in result.get(cat_name, [])}
-                    if fname not in existing:
-                        result[cat_name].append((fname, fpath, os.path.getsize(fpath), os.path.getmtime(fpath), rel))
-        # Scan loose files in root
-        for fname in sorted(os.listdir(base_dir)):
-            fpath = os.path.join(base_dir, fname)
+    # Scan shared category subdirectories
+    for cat_name in all_cat_names:
+        cat_dir = os.path.join(_UPLOADS_DIR, cat_name)
+        if not os.path.isdir(cat_dir):
+            continue
+        for fname in sorted(os.listdir(cat_dir)):
+            fpath = os.path.join(cat_dir, fname)
             if os.path.isfile(fpath):
-                cat = _get_file_category(fname)
-                if cat not in result:
-                    result[cat] = []
-                existing = {entry[0] for entry in result.get(cat, [])}
+                if cat_name not in result:
+                    result[cat_name] = []
+                existing = {entry[0] for entry in result.get(cat_name, [])}
                 if fname not in existing:
-                    result[cat].append((fname, fpath, os.path.getsize(fpath), os.path.getmtime(fpath), rel_prefix + fname))
+                    result[cat_name].append((fname, fpath, os.path.getsize(fpath),
+                                            os.path.getmtime(fpath), f"uploads/{cat_name}/{fname}"))
 
-    # 1) Current session
-    _scan_dir(session_dir)
-
-    # 2) Global pool (uploads/<category>/)
-    _scan_dir(_UPLOADS_DIR, rel_prefix="../")
-
-    # 3) ALL other session directories — so new chats can see previously uploaded files
-    if os.path.isdir(_UPLOADS_DIR):
-        for dirname in sorted(os.listdir(_UPLOADS_DIR)):
-            if dirname == session_id:
-                continue  # already scanned
-            if dirname in all_cat_names:
-                continue  # skip global pool category dirs
-            other_session_dir = os.path.join(_UPLOADS_DIR, dirname)
-            if os.path.isdir(other_session_dir):
-                _scan_dir(other_session_dir, rel_prefix=f"../{dirname}/")
+    # Scan loose files in root
+    for fname in sorted(os.listdir(_UPLOADS_DIR)):
+        fpath = os.path.join(_UPLOADS_DIR, fname)
+        if os.path.isfile(fpath):
+            cat = _get_file_category(fname)
+            if cat not in result:
+                result[cat] = []
+            existing = {entry[0] for entry in result.get(cat, [])}
+            if fname not in existing:
+                result[cat].append((fname, fpath, os.path.getsize(fpath),
+                                   os.path.getmtime(fpath), f"uploads/{fname}"))
 
     return result
 
