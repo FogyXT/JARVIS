@@ -568,7 +568,7 @@ def _coding_chat_stream(history, session_id, prompt):
                 # Auto-memory: extract facts from coding exchanges
                 try:
                     from tools.auto_memory import auto_remember
-                    auto_remember(user_message=prompt, assistant_response=final)
+                    auto_remember(user_message=prompt, assistant_response=final, model="deepseek-chat")
                 except Exception:
                     pass
                 return
@@ -630,7 +630,7 @@ def _coding_chat_stream(history, session_id, prompt):
         # Auto-memory: extract facts from coding fallback exchanges
         try:
             from tools.auto_memory import auto_remember
-            auto_remember(user_message=prompt, assistant_response=str(final.content))
+            auto_remember(user_message=prompt, assistant_response=str(final.content), model=CLAUDE_MODEL)
         except Exception:
             pass
     except Exception as e:
@@ -1174,7 +1174,7 @@ def _jarvis_chat_stream(history, session_id, prompt):
             # Auto-memory: extract and store facts from this exchange
             try:
                 from tools.auto_memory import auto_remember
-                auto_remember(user_message=prompt, assistant_response=final_text)
+                auto_remember(user_message=prompt, assistant_response=final_text, model=CLAUDE_MODEL)
             except Exception:
                 pass
 

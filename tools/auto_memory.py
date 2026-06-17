@@ -162,8 +162,12 @@ Return ONLY a JSON array of objects, nothing else. Example:
 If nothing meaningful to extract, return []"""
 
 
-def _llm_extract_facts(text: str) -> list[dict]:
-    """Use DeepSeek to extract meaningful facts from conversation text.
+def _llm_extract_facts(text: str, model: str = "deepseek-chat") -> list[dict]:
+    """Use the specified LLM to extract meaningful facts from conversation text.
+
+    Args:
+        text: Conversation text to extract from
+        model: LLM to use — matches the conversation model
 
     Returns list of {key, value, type, importance} dicts.
     Falls back to empty list on any failure.
@@ -174,8 +178,8 @@ def _llm_extract_facts(text: str) -> list[dict]:
     prompt = LLM_EXTRACTION_PROMPT.replace("{text}", text[:8000])  # safety cap
 
     try:
-        from tools.llm_helper import call_deepseek
-        result = call_deepseek(prompt, max_tokens=2000, temperature=0.1)
+        from tools.llm_helper import call_llm
+        result = call_llm(prompt, model=model, max_tokens=2000, temperature=0.1)
         if not result:
             return []
 
@@ -279,11 +283,15 @@ def _extract_facts(text: str) -> list[dict]:
 # ── Auto-Remember ─────────────────────────────────────────────────────────
 
 def auto_remember(user_message: str = "", assistant_response: str = "",
-                  context: str = "") -> dict:
+                  context: str = "", model: str = "deepseek-chat") -> dict:
     """Automaticky ulož dôležité fakty z konverzácie.
 
     Volaj po každej výmene (user message + assistant response).
-    Uses LLM extraction (DeepSeek) when available, regex patterns as fallback.
+    Uses the same LLM model that handled the conversation for extraction.
+
+    Args:
+        model: LLM to use for extraction. Matches the conversation model.
+               "deepseek-chat" (coding mode), "claude-sonnet-4-6" (Jarvis mode), etc.
 
     Returns:
         {"stored": N, "facts": [...], "consolidated": bool}
@@ -299,7 +307,7 @@ def auto_remember(user_message: str = "", assistant_response: str = "",
     if context:
         combined += f"\nContext: {context}"
 
-    facts = _llm_extract_facts(combined)
+    facts = _llm_extract_facts(combined, model=model)
 
     if not facts:
         # Fallback: regex patterns (works without API key)
