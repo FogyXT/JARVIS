@@ -84,36 +84,22 @@ def _start_webui():
 
 
 client = Anthropic()
-# Haiku vision client — na overenie obrázkov pred odoslaním
-_haiku_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-_haiku_client = Anthropic(api_key=_haiku_api_key, base_url="https://api.anthropic.com") if _haiku_api_key else None
+
+# Lokálne AI vision (Ollama) — iba ak treba, žiadne Anthropic API pre vision
+import tools.local_ai as jarvis_local_ai
 
 def describe_image(filepath):
-    """Overí obsah obrázka cez Claude Haiku vision. Vráti popis."""
-    if not _haiku_client:
-        return "Chyba: ANTHROPIC_API_KEY nie je nastavený (potrebný pre vision)."
+    """Overí obsah obrázka cez lokálne AI vision (Ollama). Vráti popis."""
     if not os.path.exists(filepath):
         return f"Chyba: súbor {filepath} neexistuje."
-    import base64 as _b64
     try:
-        with open(filepath, "rb") as f:
-            img_data = _b64.b64encode(f.read()).decode()
-        # Detekcia MIME typu podľa base64 hlavičky, nie prípony (Bing často klame)
-        mime = "image/jpeg"  # fallback
-        prefix20 = img_data[:20]
-        if prefix20.startswith("iVBORw0KGgo"): mime = "image/png"
-        elif prefix20.startswith("R0lGOD"): mime = "image/gif"
-        elif prefix20.startswith("UklGR"): mime = "image/webp"
-        elif prefix20.startswith("Qk"): mime = "image/bmp"
-        resp = _haiku_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
-            messages=[{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": mime, "data": img_data}},
-                {"type": "text", "text": "Stručne popíš čo je na tomto obrázku. Kto/čo to je? Je to jasne rozpoznateľné?"}
-            ]}]
+        desc, err = jarvis_local_ai.describe_image(
+            filepath,
+            prompt="Stručne popíš čo je na tomto obrázku. Kto/čo to je? Je to jasne rozpoznateľné?"
         )
-        return resp.content[0].text
+        if err:
+            return f"Chyba pri analýze obrázka: {err}"
+        return desc
     except Exception as e:
         return f"Chyba pri analýze obrázka: {e}"
 

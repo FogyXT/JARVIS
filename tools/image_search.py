@@ -4,70 +4,43 @@ Uses duckduckgo_search library (free, no API key, rate-limited to ~20 req/min).
 """
 import os
 import re
-import base64
 from ddgs import DDGS
 
 
 def _describe_image_for_rename(filepath):
     """
-    Calls Claude Haiku to get a 3-5 word description of the image.
+    Calls local AI vision (Ollama) to get a 3-5 word description of the image.
     Returns a sanitized string suitable for use as a filename.
+    Falls back to 'image_description' if local AI is not available.
     """
     try:
-        import anthropic
+        from tools.local_ai import describe_image
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
+        desc, err = describe_image(
+            filepath,
+            prompt=(
+                "Describe this image in 3-5 words. "
+                "Use only lowercase English words separated by underscores. "
+                "No punctuation, no articles. "
+                "Example: 'smiling_man_in_suit' or 'red_sports_car'. "
+                "Reply with ONLY the description, nothing else."
+            ),
+        )
+        if err or not desc:
             return None
 
-        with open(filepath, "rb") as f:
-            image_data = base64.standard_b64encode(f.read()).decode("utf-8")
-
-        ext = os.path.splitext(filepath)[1].lower()
-        media_type_map = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-        }
-        media_type = media_type_map.get(ext, "image/jpeg")
-
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=64,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": image_data,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "Describe this image in 3-5 words. "
-                                "Use only lowercase English words separated by underscores. "
-                                "No punctuation, no articles. "
-                                "Example: 'smiling_man_in_suit' or 'red_sports_car'. "
-                                "Reply with ONLY the description, nothing else."
-                            ),
-                        },
-                    ],
-                }
-            ],
-        )
-
-        raw = message.content[0].text.strip()
+        raw = desc.strip()
         sanitized = re.sub(r"[^\w]", "_", raw.lower())
         sanitized = re.sub(r"_+", "_", sanitized).strip("_")
         sanitized = sanitized[:50]
+
+        if len(sanitized) < 3:
+            return None
+        return sanitized
+
+    except Exception as e:
+        print(f"[ImageSearch] _describe_image_for_rename failed: {e}")
+        return None
         return sanitized if sanitized else None
 
     except Exception as e:
