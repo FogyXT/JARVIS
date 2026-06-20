@@ -134,7 +134,7 @@
                     <button id="upload-btn" title="Nahrať súbor">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     </button>
-                    <button id="camera-btn" title="Fotka z galerie" class="camera-btn">📷</button>
+                    <button id="camera-btn" title="Odfotiť" class="camera-btn">📷</button>
                     <button id="files-btn" title="Vybrať z nahratých súborov">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                     </button>
@@ -166,6 +166,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <div id="sidebar-overlay"></div>
-    <script src="{{ url_for('static', filename='script.js') }}?v=19"></script>
+
+    <!-- Camera overlay — MediaDevices API, otvorí kameru priamo v prehliadači -->
+    <div id="camera-overlay" class="hidden">
+        <div id="camera-viewfinder">
+            <video id="camera-preview" autoplay playsinline></video>
+            <canvas id="camera-canvas" class="hidden"></canvas>
+            <div id="camera-controls">
+                <button id="camera-close-btn" title="Zatvoriť" class="cam-ctrl-btn">✕</button>
+                <button id="camera-shutter" title="Odfotiť" class="cam-shutter">📸</button>
+                <button id="camera-switch" title="Prehodiť kameru" class="cam-ctrl-btn">🔄</button>
+            </div>
+            <div id="camera-flash" class="hidden"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}?v=20"></script>
 </body>
 </html>

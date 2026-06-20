@@ -333,10 +333,11 @@ function updateModelBadge() {
     const badge = document.getElementById('model-badge');
     if (!badge) return;
     if (state.mode === 'jarvis') {
-        var m = config.claude_model || 'Claude';
+        var m = config.jarvis_model || 'DeepSeek';
         badge.textContent = '🤖 ' + m;
     } else {
-        badge.textContent = '🧠 DeepSeek V4 Flash';
+        var m = config.coding_model || 'DeepSeek';
+        badge.textContent = '🧠 ' + m;
     }
 }
 
@@ -453,11 +454,15 @@ const reasoningQueue = {
         if (this._block && document.contains(this._block)) return this._block;
         const block = document.createElement('div');
         block.className = 'reasoning-block';
-        block.innerHTML = `<div class="reasoning-header" onclick="this.nextElementSibling.classList.toggle('collapsed')">
+        block.innerHTML = `<div class="reasoning-header" onclick="
+            var c = this.nextElementSibling;
+            c.classList.toggle('collapsed');
+            this.querySelector('.reasoning-toggle').textContent = c.classList.contains('collapsed') ? '▶' : '▼';
+        ">
             <span class="reasoning-icon">🤔</span>
             <span class="reasoning-label">Rozmýšľanie</span>
-            <span class="reasoning-toggle">▼</span></div>
-            <div class="reasoning-content"></div>`;
+            <span class="reasoning-toggle">▶</span></div>
+            <div class="reasoning-content collapsed"></div>`;
         const lastMsg = messagesEl.querySelector('.message.assistant:last-of-type');
         if (lastMsg) messagesEl.insertBefore(block, lastMsg);
         else messagesEl.appendChild(block);
@@ -974,34 +979,131 @@ const filesBtn = document.getElementById('files-btn');
 })();
 
 
-// Camera button — opens device camera to capture photos/videos
+// Camera button — MediaDevices API: otvorí kameru priamo v prehliadači
 (function() {
     var camBtn = document.getElementById('camera-btn');
-    if (camBtn) {
-        camBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            var inp = document.createElement('input');
-            inp.type = 'file';
-            inp.accept = 'image/*,video/*';  // camera captures photos + videos
-            inp.capture = 'environment';     // use rear camera on mobile
-            inp.multiple = true;
-            inp.onchange = async function() {
-                if (inp.files.length > 0) {
-                    for (var i = 0; i < inp.files.length; i++) {
-                        if (state.images.length >= 50) break;
+    var overlay = document.getElementById('camera-overlay');
+    var video = document.getElementById('camera-preview');
+    var canvas = document.getElementById('camera-canvas');
+    var shutter = document.getElementById('camera-shutter');
+    var closeBtn = document.getElementById('camera-close-btn');
+    var switchBtn = document.getElementById('camera-switch');
+    var flash = document.getElementById('camera-flash');
+    var stream = null;
+    var facingMode = 'environment';
+
+    if (!camBtn || !overlay) return;
+
+    function stopStream() {
+        if (stream) {
+            stream.getTracks().forEach(function(t) { t.stop(); });
+            stream = null;
+        }
+        video.srcObject = null;
+    }
+
+    async function startCamera(facing) {
+        stopStream();
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                audio: false,
+            });
+            video.srcObject = stream;
+            overlay.classList.remove('hidden');
+            return true;
+        } catch (err) {
+            // Fallback: skús bez facingMode (niektoré zariadenia)
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                overlay.classList.remove('hidden');
+                switchBtn.classList.add('hidden'); // nevieme prepínať
+                return true;
+            } catch (err2) {
+                // Úplný fallback: klasický input[type=file][capture]
+                var inp = document.createElement('input');
+                inp.type = 'file';
+                inp.accept = 'image/*';
+                inp.capture = 'environment';
+                inp.onchange = async function() {
+                    if (inp.files.length > 0 && state.images.length < 50) {
                         try {
-                            var uploadResult = await uploadFile(inp.files[i]);
-                            // Camera captures get server-side category from content_type
-                            state.images.push(uploadResult);
+                            var r = await uploadFile(inp.files[0]);
+                            state.images.push(r);
+                            updatePreview();
+                            refreshFileList();
                         } catch (_) {}
                     }
+                };
+                inp.click();
+                return false;
+            }
+        }
+    }
+
+    function capturePhoto() {
+        if (!stream) return;
+        // Flash efekt
+        flash.classList.remove('hidden');
+        flash.classList.add('active');
+        setTimeout(function() { flash.classList.remove('active'); flash.classList.add('hidden'); }, 150);
+
+        var w = video.videoWidth || 1280;
+        var h = video.videoHeight || 720;
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        // Flip if front camera
+        if (facingMode === 'user') {
+            ctx.translate(w, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0);
+        canvas.toBlob(async function(blob) {
+            if (!blob) return;
+            var filename = 'camera_' + Date.now() + '.jpg';
+            var file = new File([blob], filename, { type: 'image/jpeg' });
+            if (state.images.length < 50) {
+                try {
+                    var uploadResult = await uploadFile(file);
+                    state.images.push(uploadResult);
                     updatePreview();
                     refreshFileList();
-                }
-            };
-            inp.click();
-        });
+                } catch (_) {}
+            }
+        }, 'image/jpeg', 0.92);
     }
+
+    function stopCamera() {
+        stopStream();
+        overlay.classList.add('hidden');
+    }
+
+    // Event listeners
+    camBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        startCamera(facingMode);
+    });
+
+    shutter.addEventListener('click', capturePhoto);
+    closeBtn.addEventListener('click', stopCamera);
+
+    // Prepínanie predná/zadná kamera
+    switchBtn.addEventListener('click', function() {
+        facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+        startCamera(facingMode);
+    });
+
+    // Keyboard: Enter/space = fotka, Escape = zavrieť
+    document.addEventListener('keydown', function(e) {
+        if (overlay.classList.contains('hidden')) return;
+        if (e.key === 'Escape') { stopCamera(); e.preventDefault(); }
+        else if (e.key === 'Enter' || (e.key === ' ' && e.target === document.body)) {
+            capturePhoto();
+            e.preventDefault();
+        }
+    });
 })();
 
 

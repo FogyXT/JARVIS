@@ -32,6 +32,10 @@ archive/
 *.sqlite
 *.sqlite3
 knowledge_graph.db
+knowledge_graph.db-shm
+knowledge_graph.db-wal
+*.db-shm
+*.db-wal
 episodic_buffer.json
 jarvis_memory.json
 agents/

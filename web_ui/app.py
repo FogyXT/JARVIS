@@ -11,7 +11,6 @@ import tempfile
 from datetime import datetime
 
 from flask import Flask, request, jsonify, Response, render_template
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
 # Make sure we can import from project root
@@ -97,21 +96,27 @@ def login_required(f):
 from flask import session, redirect
 
 
-# Claude client via DeepSeek proxy (used by Jarvis mode if no direct Anthropic key)
-claude = Anthropic()
-CLAUDE_MODEL = "claude-sonnet-4-6"
+# Lokálne AI pre vision (Ollama) — používa tools.local_ai modul
+# Spúšťa sa len na požiadanie, bez Anthropic / Haiku
+import tools.local_ai as local_ai
+_LOCAL_AI_AVAILABLE = False  # overíme nižšie
+try:
+    from openai import OpenAI
+    # Lazy init — overíme až keď treba
+    _LOCAL_AI_AVAILABLE = True  # modul je naimportovaný, Ollama sa spustí pri prvom volaní
+    print(f"🏠 Lokálne AI vision: {local_ai.LOCAL_AI_BASE_URL} — model: {local_ai.LOCAL_AI_MODEL}")
+    print(f"   (warmup v pozadí — model bude ready o chvíľu)")
 
-# Direct Anthropic client for Haiku (cheap, vision, tools)
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
-haiku_client = Anthropic(api_key=ANTHROPIC_API_KEY, base_url="https://api.anthropic.com") if ANTHROPIC_API_KEY else None
-if haiku_client:
-    print(f"🧠 Haiku client ready ({HAIKU_MODEL})")
-else:
-    print("⚠️ Haiku client not available (no direct Anthropic API key)")
+    # Warmup: načíta model do RAM v pozadí aby prvý describe_image bol instantný
+    import threading
+    threading.Thread(target=local_ai.warmup, daemon=True, name="local-ai-warmup").start()
+except ImportError:
+    print(f"⚠️ OpenAI knižnica nie je nainštalovaná — vision nedostupný")
+    _LOCAL_AI_AVAILABLE = False
 
-# Try loading DeepSeek key for coding mode
+# DeepSeek — hlavný model pre oba módy
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_AVAILABLE = bool(DEEPSEEK_API_KEY)
 
 # Import Jarvis tools functions for tool dispatch
@@ -236,7 +241,19 @@ def _execute_coding_tool(name, args, session_id="default"):
             p = tools.take_screenshot()
             with open(p, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")
-            return f"[SCREENSHOT:data:image/png;base64,{b64}]"
+            # DeepSeek nevidí obrázky — rovno pridáme popis z lokálneho AI
+            description = ""
+            if _LOCAL_AI_AVAILABLE:
+                try:
+                    desc, err = local_ai.describe_image(p, prompt="Describe what's visible on this screenshot. Include: UI elements, text, colors, applications visible. Be specific.")
+                    if desc:
+                        description = desc
+                except Exception:
+                    pass
+            result = f"[SCREENSHOT:{p}]"
+            if description:
+                result += f"\n📸 Popis screenshotu: {description}"
+            return result
         if name == "system_info":
             return tools.system_info(args.get("category", "all"))
         if name == "instagram_dm":
@@ -258,7 +275,17 @@ def _execute_coding_tool(name, args, session_id="default"):
         if name == "memory":
             return tools.memory(args["action"], args.get("key"), args.get("value"))
         if name == "describe_image":
-            return _describe_image(args.get("filename", ""), args.get("session_id", ""))
+            fp = args.get("filepath") or args.get("filename", "")
+            sid = args.get("session_id", "")
+            if fp and not sid:
+                # Priama cesta — pošleme rovno do local_ai
+                import os as _os
+                if _os.path.isfile(fp):
+                    desc, err = local_ai.describe_image(fp)
+                    if err:
+                        return f"📷 Popis obrázka: {err}"
+                    return f"📷 Popis obrázka ({_os.path.basename(fp)}):\n{desc}"
+            return _describe_image(fp, sid)
         if name == "minecraft_command":
             return tools.minecraft_command(args.get("command", ""))
         if name == "minecraft_say":
@@ -363,40 +390,35 @@ def _find_uploaded_file(session_id, filename):
     return None
 
 
-def _describe_image(filename, session_id):
-    """Use Claude vision to describe an uploaded image. Returns text description."""
-    if not filename or not session_id:
-        return "Missing filename or session_id."
-    # Locate the image file — search in categories
-    fpath = _find_uploaded_file(session_id, filename)
-    if not fpath:
-        # Try without session subdirectory
-        fpath = os.path.join(_UPLOADS_DIR, os.path.basename(filename))
-        if not os.path.exists(fpath):
-            return f"Image file not found: {filename}"
+def _describe_image(filepath_or_name, session_id=""):
+    """Describe an image using local AI vision (Ollama). No Anthropic API.
+
+    Args:
+        filepath_or_name: absolútna cesta, alebo filename pre vyhľadanie
+        session_id: session pre vyhľadanie (ak filepath_or_name nie je cesta)
+    """
+    if not filepath_or_name:
+        return "Missing filename or filepath."
+
+    # Už je to absolútna cesta?
+    if os.path.isfile(filepath_or_name):
+        fpath = filepath_or_name
+        fname = os.path.basename(fpath)
+    else:
+        # Hľadáme medzi uploadnutými súbormi
+        fname = filepath_or_name
+        fpath = _find_uploaded_file(session_id, fname)
+        if not fpath:
+            fpath = os.path.join(_UPLOADS_DIR, os.path.basename(fname))
+            if not os.path.exists(fpath):
+                return f"Image file not found: {fname}"
     try:
-        import mimetypes
-        mt = mimetypes.guess_type(fpath)[0] or "image/jpeg"
-        with open(fpath, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        # Call Haiku (cheap vision model) to describe the image
-        client = haiku_client or claude
-        model = CLAUDE_MODEL  # Sonnet 4.6 for Jarvis mode
-        resp = client.messages.create(
-            model=model,
-            max_tokens=500,
-            system=[{"type": "text", "text": "Describe this image in detail in the user's language (Slovak or English based on what you see). Include: main subjects, colors, text visible, composition, style, mood."}],
-            messages=[{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": mt, "data": b64}},
-                {"type": "text", "text": "What's in this image?"}
-            ]}],
-        )
-        desc = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-        return f"📷 Popis obrázka ({filename}):\n{desc}"
-    except ImportError:
-        return f"Image file found at {fpath} but vision API unavailable."
+        desc, err = local_ai.describe_image(fpath)
+        if err:
+            return f"📷 Popis obrázka ({fname}): {err}"
+        return f"📷 Popis obrázka ({fname}):\n{desc}"
     except Exception as e:
-        return f"Chyba pri popise obrázka {filename}: {e}"
+        return f"Chyba pri popise obrázka {fname}: {e}"
 
 
 def _load_memories():
@@ -438,7 +460,7 @@ def _deepseek_send_plain(messages, tools=None):
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     try:
         resp = client.chat.completions.create(
-            model="deepseek-chat",
+            model=DEEPSEEK_MODEL,
             messages=messages,
             tools=tools,
             stream=False,
@@ -541,17 +563,29 @@ def _coding_chat_stream(history, session_id, prompt):
 
             msg = resp["choices"][0].get("message", {})
 
-            # Check for reasoning in non-streaming response
-            reasoning = msg.get("reasoning_content", "")
-            if reasoning:
-                yield f"data: {json.dumps({'type': 'reasoning', 'text': reasoning})}\n\n"
+            # Reasoning content (deep thinking)
+            reasoning = msg.get("reasoning_content", "") or ""
+            content = msg.get("content", "") or ""
 
-            oai.append({"role": "assistant", "content": msg.get("content", ""),
+            # DeepSeek niekedy dá celú odpoveď len do reasoning_content a content je prázdny
+            # Vtedy pošleme reasoning ako token (do chatu) a nerobíme zvlášť reasoning blok
+            if not content and reasoning:
+                content = reasoning
+                reasoning = ""
+                yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+            else:
+                if reasoning:
+                    yield f"data: {json.dumps({'type': 'reasoning', 'text': reasoning})}\n\n"
+                if content:
+                    yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+
+            oai.append({"role": "assistant", "content": content,
                         "tool_calls": msg.get("tool_calls")})
 
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
-                final = msg.get("content", "")
+                # Use the already-resolved content (s reasoning fallback)
+                final = content
                 # Send entire response instantly — no artificial delay
                 yield f"data: {json.dumps({'type': 'token', 'text': final})}\n\n"
                 total_elapsed = round(time.time() - overall_start, 1)
@@ -568,7 +602,7 @@ def _coding_chat_stream(history, session_id, prompt):
                 # Auto-memory: extract facts from coding exchanges
                 try:
                     from tools.auto_memory import auto_remember
-                    auto_remember(user_message=prompt, assistant_response=final, model="deepseek-chat")
+                    auto_remember(user_message=prompt, assistant_response=final, model=DEEPSEEK_MODEL)
                 except Exception:
                     pass
                 return
@@ -613,29 +647,9 @@ def _coding_chat_stream(history, session_id, prompt):
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
 
-    # Claude fallback
-    sb = [{"type": "text", "text": "You are a coding assistant.", "cache_control": {"type": "ephemeral"}}]
-    try:
-        fallback_msgs = list(history) + [{"role": "user", "content": prompt}]
-        with claude.messages.stream(model=CLAUDE_MODEL, max_tokens=4000, system=sb, messages=fallback_msgs) as s:
-            for t in s.text_stream:
-                yield f"data: {json.dumps({'type': 'token', 'text': t})}\n\n"
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-        final = s.get_final_message()
-        history.append({"role": "user", "content": [{"type": "text", "text": prompt}]})
-        history.append({"role": "assistant", "content": final.content})
-        conversations[session_id] = history
-        _auto_save(session_id, history)
-
-        # Auto-memory: extract facts from coding fallback exchanges
-        try:
-            from tools.auto_memory import auto_remember
-            auto_remember(user_message=prompt, assistant_response=str(final.content), model=CLAUDE_MODEL)
-        except Exception:
-            pass
-    except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+    # Claude fallback — už nie je podporovaný, oba módy vyžadujú DeepSeek
+    yield f"data: {json.dumps({'type': 'error', 'text': 'DeepSeek API kľúč nie je nastavený. Oba módy (coding aj jarvis) vyžadujú DEEPSEEK_API_KEY v .env.'})}\n\n"
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -1053,10 +1067,11 @@ def index():
 @login_required
 def api_config():
     return jsonify({
-        "claude_model": CLAUDE_MODEL,
-        "jarvis_model": CLAUDE_MODEL,
-        "coding_model": "deepseek-chat",
+        "claude_model": "none (DeepSeek only)",
+        "jarvis_model": DEEPSEEK_MODEL,
+        "coding_model": DEEPSEEK_MODEL,
         "deepseek_available": DEEPSEEK_AVAILABLE,
+        "deepseek_model": DEEPSEEK_MODEL,
         "tools_count": len(JARVIS_TOOLS),
     })
 
@@ -1096,15 +1111,12 @@ def chat():
         return _coding_chat_stream(history, session_id, prompt)
 
 def _jarvis_chat_stream(history, session_id, prompt):
-    """Jarvis mode: Claude with full tools, conversation history, and persistence."""
+    """Jarvis mode: DeepSeek s plnými nástrojmi, konverzačnou históriou a perzistenciou."""
     def generate():
         final_text = ""
         overall_start = time.time()
         try:
-            # Build messages for API call (don't mutate history until success)
-            _msgs = list(history)
-
-            # Inject memory context into user message (context_builder pulls from all 5 tiers)
+            # Inject memory context do user prompt
             try:
                 from tools.context_builder import build_context
                 mem_ctx = build_context(prompt)
@@ -1115,70 +1127,131 @@ def _jarvis_chat_stream(history, session_id, prompt):
             except Exception:
                 augmented_prompt = prompt
 
-            _msgs.append({"role": "user", "content": [{"type": "text", "text": augmented_prompt}]})
+            if not DEEPSEEK_AVAILABLE:
+                yield f"data: {json.dumps({'type': 'error', 'text': 'DEEPSEEK_API_KEY nie je nastavený v .env — oba módy vyžadujú DeepSeek.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
 
-            max_turns = 5
-            for turn in range(max_turns):
-                resp = claude.messages.create(
-                    model=CLAUDE_MODEL,
-                    max_tokens=4000,
-                    system=[{"type": "text", "text": JARVIS_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-                    tools=JARVIS_TOOLS,
-                    messages=_msgs,
-                )
-                _msgs.append({"role": "assistant", "content": resp.content})
+            # Build system prompt s CLAUDE.md a pamäťami
+            sys_prompt = JARVIS_SYSTEM_PROMPT + _load_claude_md()
+            memories = _format_memories_for_prompt()
+            if memories:
+                sys_prompt += f"\n\n📌 ZAPAMÄTANÉ:\n{memories}"
 
-                # Stream text blocks and detect tool use
-                has_tools = False
-                for block in resp.content:
-                    if getattr(block, "type", None) == "text":
-                        final_text += block.text
-                        yield f"data: {json.dumps({'type': 'token', 'text': block.text})}\n\n"
-                    elif getattr(block, "type", None) == "tool_use":
-                        has_tools = True
+            # Convertovať history do OpenAI formátu
+            oai = _convert_to_oai(history)
+            oai.append({"role": "user", "content": augmented_prompt})
+            oai.insert(0, {"role": "system", "content": sys_prompt})
 
-                if not has_tools or resp.stop_reason != "tool_use":
+            # Konvertovať Jarvis nástroje do OpenAI formátu (rovnako ako CODING_TOOLS)
+            jarvis_oai_tools = []
+            for t in JARVIS_TOOLS:
+                if t.get("type", "").startswith("web_search"):
+                    continue
+                schema = t.get("input_schema", {})
+                props = schema.get("properties", {})
+                required = schema.get("required", [])
+                tool = {
+                    "type": "function",
+                    "function": {
+                        "name": t["name"],
+                        "description": t.get("description", ""),
+                        "parameters": {"type": "object", "properties": props}
+                    }
+                }
+                if required:
+                    tool["function"]["parameters"]["required"] = required
+                jarvis_oai_tools.append(tool)
+
+            loop_count = 0
+            for _ in range(5):  # max 5 tool turnov
+                loop_count += 1
+
+                resp = _deepseek_send_plain(oai, tools=jarvis_oai_tools)
+                if "error" in resp:
+                    yield f"data: {json.dumps({'type': 'error', 'text': resp['error']})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    return
+
+                usage = resp.get("usage", {})
+                pt = usage.get("prompt_tokens", 0)
+                ct = usage.get("completion_tokens", 0)
+
+                msg = resp["choices"][0].get("message", {})
+
+                # Reasoning (deepseek-reasoner kompatibilita)
+                reasoning = msg.get("reasoning_content", "") or ""
+                raw_content = msg.get("content", "") or ""
+
+                # DeepSeek dáva odpoveď niekedy len do reasoning_content,
+                # content je prázdny — vtedy to pošleme ako token
+                if not raw_content and reasoning:
+                    content = reasoning
+                    reasoning = ""
+                    yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+                else:
+                    content = raw_content
+                    if reasoning:
+                        yield f"data: {json.dumps({'type': 'reasoning', 'text': reasoning})}\n\n"
+                    if content:
+                        yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
+
+                oai.append({
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": msg.get("tool_calls")
+                })
+
+                final_text += content
+
+                tool_calls = msg.get("tool_calls")
+                if not tool_calls:
                     break
 
-                # Execute tool calls with visible progress
-                tool_results = []
-                for block in resp.content:
-                    if getattr(block, "type", None) != "tool_use":
-                        continue
-                    name = block.name
-                    inp = dict(block.input) if hasattr(block.input, "items") else {}
-                    args_summary = _summarize_tool_args(name, inp)
-                    # Show tool call as reasoning block in chat
-                    yield f"data: {json.dumps({'type': 'reasoning', 'text': f'⚙️ {name}: {args_summary}'})}\n\n"
-                    yield f"data: {json.dumps({'type': 'task_start', 'name': name, 'args': args_summary})}\n\n"
-                    t_start = time.time()
+                # Spustiť tool calls
+                for tc in tool_calls:
+                    name = tc["function"]["name"]
                     try:
-                        result = _execute_coding_tool(name, inp, session_id)
-                    except Exception as e:
-                        result = f"Error: {e}"
-                    elapsed = round(time.time() - t_start, 1)
-                    yield f"data: {json.dumps({'type': 'task_end', 'name': name, 'elapsed': elapsed})}\n\n"
-                    # Show result preview as reasoning
-                    result_str = str(result)[:300]
-                    yield f"data: {json.dumps({'type': 'reasoning', 'text': f'✅ {name} ({elapsed}s): {result_str}'})}\n\n"
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(result)[:3000]})
-                _msgs.append({"role": "user", "content": tool_results})
+                        args = json.loads(tc["function"]["arguments"])
+                    except json.JSONDecodeError:
+                        args = {}
 
-            # Persist conversation on success
+                    args_pretty = json.dumps(args, ensure_ascii=False, indent=1)[:500]
+                    yield f"data: {json.dumps({'type': 'reasoning', 'text': f'\n⚙️ {name}\n{args_pretty}\n'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'task_start', 'name': name, 'args': _summarize_tool_args(name, args)})}\n\n"
+
+                    t_tool = time.time()
+                    result = _execute_coding_tool(name, args, session_id)
+                    tool_elapsed = time.time() - t_tool
+                    result_str = str(result)
+
+                    yield f"data: {json.dumps({'type': 'task_end', 'name': name, 'elapsed': round(tool_elapsed, 1)})}\n\n"
+
+                    result_preview = result_str[:500]
+                    if len(result_str) > 500:
+                        result_preview += f"\n… ({len(result_str)} chars total)"
+                    yield f"data: {json.dumps({'type': 'reasoning', 'text': f'✅ {name} ({tool_elapsed:.1f}s)\n{result_preview}\n'})}\n\n"
+
+                    oai.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result_str[:3000]
+                    })
+
+            # Perzistovať konverzáciu
             history.append({"role": "user", "content": [{"type": "text", "text": prompt}]})
             history.append({"role": "assistant", "content": [{"type": "text", "text": final_text}]})
             conversations[session_id] = history
             _auto_save(session_id, history)
 
-            # ── 5-Tier Memory Integration ──
-            # Auto-memory: extract and store facts from this exchange
+            # Auto-memory: extrahovať fakty z tejto výmeny
             try:
                 from tools.auto_memory import auto_remember
-                auto_remember(user_message=prompt, assistant_response=final_text, model=CLAUDE_MODEL)
+                auto_remember(user_message=prompt, assistant_response=final_text, model=DEEPSEEK_MODEL)
             except Exception:
                 pass
 
-            # Periodic consolidation: keep memory healthy (every ~10 exchanges)
+            # Periodická konsolidácia (každých ~10 správ)
             try:
                 from tools.auto_memory import _counter
                 if _counter.get("calls", 0) % 10 == 0:
@@ -1190,6 +1263,7 @@ def _jarvis_chat_stream(history, session_id, prompt):
             total_elapsed = round(time.time() - overall_start, 1)
             yield f"data: {json.dumps({'type': 'stats', 'elapsed_sec': total_elapsed})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -1318,12 +1392,11 @@ def main():
     port = int(os.getenv("WEBUI_PORT", 5000))
     host = os.getenv("WEBUI_HOST", "127.0.0.1")
 
-    jarvis_model_name = CLAUDE_MODEL  # Sonnet 4.6
-    print(f"🤖 Jarvis mode: {jarvis_model_name} — tools: {len(JARVIS_TOOLS)}")
     if DEEPSEEK_AVAILABLE:
-        print(f"💻 Coding mode: DeepSeek (5 tools, reasoning, stats)")
+        print(f"🤖 Jarvis mode: {DEEPSEEK_MODEL} — tools: {len(JARVIS_TOOLS)}")
+        print(f"💻 Coding mode: {DEEPSEEK_MODEL} (tools, reasoning, stats)")
     else:
-        print(f"💻 Coding mode: {CLAUDE_MODEL} (coding prompt)")
+        print(f"⚠️ DeepSeek nie je k dispozícii — nastav DEEPSEEK_API_KEY v .env")
 
     if host not in ("127.0.0.1", "localhost", "::1"):
         print("⚠️  WARNING: Web UI bound to non-localhost! Anyone on the network can access tools.")
@@ -1354,6 +1427,37 @@ def main():
 
     os.makedirs(os.path.join(os.path.dirname(__file__), "templates"), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), "static"), exist_ok=True)
+
+    # Start ngrok tunnel for mobile/remote access
+    def _start_ngrok():
+        import threading, subprocess, urllib.request, json as _json, time as _time
+        def _run():
+            try:
+                proc = subprocess.Popen(
+                    ["ngrok", "http", str(port)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                for _ in range(20):
+                    _time.sleep(0.5)
+                    try:
+                        with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=2) as r:
+                            data = _json.loads(r.read())
+                            for t in data.get("tunnels", []):
+                                url = t.get("public_url", "")
+                                if url.startswith("https://"):
+                                    print(f"📱 ngrok tunnel: {url}")
+                                    return
+                    except Exception:
+                        pass
+                print("📱 ngrok started (check http://127.0.0.1:4040)")
+            except FileNotFoundError:
+                print("⚠️  ngrok not found — mobile access unavailable")
+            except Exception as e:
+                print(f"⚠️  ngrok error: {e}")
+        threading.Thread(target=_run, daemon=True).start()
+
+    _start_ngrok()
 
     from waitress import serve
     print(f"🚀 Waitress WSGI server — http://{host}:{port}")

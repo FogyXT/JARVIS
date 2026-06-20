@@ -18,6 +18,48 @@ _JARVIS_PATH = os.path.join(_PROJECT_ROOT, "jarvis.py")
 _WEBUI_PATH = os.path.join(_PROJECT_ROOT, "run_webui.py")
 _SESSIONS_DIR = os.path.join(_PROJECT_ROOT, "web_ui", "sessions")
 
+_ngrok_proc = None
+
+def _start_ngrok(port=5000, on_url=None):
+    """Start ngrok tunnel for the web UI. Calls on_url(url) when tunnel is up."""
+    global _ngrok_proc
+    if _ngrok_proc and _ngrok_proc.poll() is None:
+        return  # already running
+
+    def _run():
+        global _ngrok_proc
+        try:
+            _ngrok_proc = subprocess.Popen(
+                ["ngrok", "http", str(port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # Poll ngrok API for the public URL
+            import urllib.request, json as _json, time as _time
+            for _ in range(20):
+                _time.sleep(0.5)
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=2) as r:
+                        data = _json.loads(r.read())
+                        tunnels = data.get("tunnels", [])
+                        for t in tunnels:
+                            url = t.get("public_url", "")
+                            if url.startswith("https://"):
+                                if on_url:
+                                    on_url(url)
+                                return
+                except Exception:
+                    pass
+            # Fallback: couldn't read URL but ngrok is running
+            if on_url:
+                on_url("https://ngrok (check http://127.0.0.1:4040)")
+        except FileNotFoundError:
+            print("[HUD] ngrok not found in PATH")
+        except Exception as e:
+            print(f"[HUD] ngrok error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
 from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QMenu, QPushButton,
                                 QSystemTrayIcon, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, Property, QEasingCurve, QPropertyAnimation
@@ -487,6 +529,9 @@ class HUD(QWidget):
                 webbrowser.open(url)
                 self.status.setText("🌐 Web UI spustené")
 
+            # Start ngrok tunnel for mobile access
+            _start_ngrok(on_url=lambda u: self.status.setText(f"🌐 Web UI | 📱 {u}"))
+
             self._show()
         except Exception as e:
             print(f"[HUD] webui: {e}")
@@ -590,6 +635,7 @@ class App(QApplication):
     def _webui(self):
         self._webui_proc = subprocess.Popen([sys.executable, _WEBUI_PATH], cwd=_PROJECT_ROOT)
         self.hud.status.setText("🌐 Web UI → http://127.0.0.1:5000")
+        _start_ngrok(on_url=lambda u: self.hud.status.setText(f"🌐 Web UI | 📱 {u}"))
         self.hud._show()
 
     def _on_js(self, s):

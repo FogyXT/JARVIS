@@ -1075,3 +1075,93 @@ body::after {
     /* Hide scroll-to-bottom toggle on mobile (not needed) */
     #scroll-toggle { display: none; }
 }
+
+/* ================================================================== */
+/*  CAMERA OVERLAY — MediaDevices API capture                           */
+/* ================================================================== */
+#camera-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 10000;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s ease;
+}
+#camera-overlay.hidden {
+    display: none !important;
+}
+#camera-viewfinder {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100vw;
+    max-height: 100vh;
+    overflow: hidden;
+    background: #000;
+}
+#camera-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+#camera-controls {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 0 20px;
+}
+.cam-shutter {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 4px solid rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(8px);
+    font-size: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, background 0.15s ease;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.cam-shutter:active {
+    transform: scale(0.9);
+    background: rgba(255,255,255,0.3);
+}
+.cam-ctrl-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+}
+.cam-ctrl-btn:active {
+    background: rgba(255,255,255,0.2);
+}
+#camera-flash {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s ease;
+}
+#camera-flash.active {
+    opacity: 0.6;
+}
