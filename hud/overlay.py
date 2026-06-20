@@ -383,6 +383,18 @@ class HUD(QWidget):
         self.web_btn.clicked.connect(self._do_webui)
         top.addWidget(self.web_btn)
 
+        # Trading Bot button
+        self.trade_btn = QPushButton("📊")
+        self.trade_btn.setFixedSize(24, 24)
+        self.trade_btn.setFont(QFont("Segoe UI", 11))
+        self.trade_btn.setToolTip("Spustiť Trading Bot Dashboard (port 5001)")
+        self.trade_btn.setStyleSheet(
+            "QPushButton { color: rgba(255,255,255,0.5); background: transparent; border: none; }"
+            "QPushButton:hover { color: #00FF88; background: rgba(0,255,136,0.15); border-radius: 12px; }"
+        )
+        self.trade_btn.clicked.connect(self._do_trading)
+        top.addWidget(self.trade_btn)
+
         # X close button
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedSize(22, 22)
@@ -536,6 +548,25 @@ class HUD(QWidget):
         except Exception as e:
             print(f"[HUD] webui: {e}")
 
+    def _do_trading(self):
+        """Spustí Trading Bot v pozadí a otvorí dashboard."""
+        try:
+            trading_main = str(os.path.join(_PROJECT_ROOT, "trading_bot", "main.py"))
+            if not os.path.exists(trading_main):
+                self.status.setText("⚠️ Trading Bot nenájdený")
+                return
+
+            p = subprocess.Popen([sys.executable, "-m", "trading_bot.main"], cwd=_PROJECT_ROOT)
+            self._trading_proc = p
+            self.status.setText("📊 Trading Bot → http://127.0.0.1:5001")
+            self._show()
+
+            # Otvor dashboard v default prehliadači
+            import webbrowser
+            webbrowser.open("http://127.0.0.1:5001")
+        except Exception as e:
+            print(f"[HUD] trading: {e}")
+
 
 # ── Tray App ────────────────────────────────────────────────────────────
 
@@ -549,6 +580,7 @@ class App(QApplication):
         self.hud = HUD()
         self.mgr = ProcMgr()
         self._webui_proc = None
+        self._trading_proc = None
 
         self._mk_tray()
         self._ws = WSClient()

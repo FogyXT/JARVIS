@@ -79,6 +79,10 @@ web_ui/screenshot.png
 web_ui/memory.json
 web_ui/debug_lines.txt
 websearches/
+
+# === Trading Bot (local only — not on GitHub) ===
+trading_bot/
+knowledge/trading/
 _part_*.txt
 screenshot.png
 # === Drafts & local documents ===
